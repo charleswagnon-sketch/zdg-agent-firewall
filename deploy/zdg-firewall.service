@@ -1,0 +1,21 @@
+[Unit]
+Description=ZDG Agent Firewall
+After=network.target
+
+[Service]
+Type=simple
+User=zdg
+Group=zdg
+WorkingDirectory=/opt/zdg-agent-firewall
+EnvironmentFile=/etc/zdg/zdg.env
+ExecStart=/opt/zdg-agent-firewall/.venv/bin/python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/zdg /var/lib/zdg/maildir /srv/zdg/workspace
+
+[Install]
+WantedBy=multi-user.target

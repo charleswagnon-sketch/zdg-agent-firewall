@@ -1,0 +1,64 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+.venv.py312.bak/
+venv/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local database state
+*.db
+*.db-wal
+*.db-shm
+
+# Editor and OS
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Runtime data
+data/
+
+# Internal development artifacts — not for public distribution
+BACKLOG.md
+CLAUDE.md
+docs/EXECUTION_TICKET_PACK_FND_E1_WAVE1.md
+docs/IMPLEMENTATION_STARTER_PACK_FND_E1_W1_SERIAL.md
+docs/MASTER_DEPENDENCY_MATRIX_AND_EPICS.md
+docs/PHASE_1_8_WAVE1_CONTROL_REQUIREMENTS.md
+docs/PHASE_1_9_WAVE2_THREAT_CONTAINMENT_REQUIREMENTS.md
+docs/PHASE_2_0_WAVE3_EVIDENCE_COMPLIANCE_REQUIREMENTS.md
+docs/PHASE_2_1_WAVE4_INTEROPERABILITY_ADAPTIVE_GOVERNANCE_REQUIREMENTS.md
+docs/PHASE_2_2_WAVE5_ADVANCED_RESILIENCE_REQUIREMENTS.md
+docs/STRATEGIC_ASSESSMENT_2026-03.md
+docs/ZDG_Phase3_Spec.docx
+.claude/
+
+# Internal docs
+/tests/unit/_tmp_test.txt
+docs/OPERATOR_RUNBOOK.md
+docs/PILOT_READINESS.md
+docs/PHASE_3_SPEC.md
+docs/PHASE_4_SPEC.md
+tests/unit/_tmp_test.txt
+docs/OPERATOR_RUNBOOK.md
+docs/PILOT_READINESS.md
+docs/PHASE_3_SPEC.md
+docs/PHASE_4_SPEC.md

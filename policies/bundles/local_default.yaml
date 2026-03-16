@@ -1,0 +1,75 @@
+bundle_id: "local-default-v1"
+version: "1.0.0"
+description: "Default local policy bundle for ZDG Agent Firewall MVP"
+
+# Tool families subject to governance. Any tool family not listed here bypasses evaluation.
+governed_families:
+  - shell
+  - http
+  - filesystem
+  - messaging
+
+# Risk score thresholds
+thresholds:
+  allow_max: 29       # 0-29: ALLOW
+  approval_min: 30    # 30-59: APPROVAL_REQUIRED
+  block_min: 60       # 60+: BLOCK
+
+# Explicit policy rules (evaluated before risk scoring)
+# priority: lower number = evaluated first
+rules:
+  - id: "r-deny-001"
+    name: "deny_curl_pipe_bash"
+    tool_family: "shell"
+    action_pattern: "curl.+\\|.*(ba)?sh"
+    effect: "DENY"
+    priority: 10
+    reason: "Remote script execution via curl|bash is unconditionally prohibited."
+
+  - id: "r-deny-002"
+    name: "deny_wget_pipe_bash"
+    tool_family: "shell"
+    action_pattern: "wget.+\\|.*(ba)?sh"
+    effect: "DENY"
+    priority: 10
+    reason: "Remote script execution via wget|bash is unconditionally prohibited."
+
+  - id: "r-deny-003"
+    name: "deny_fork_bomb"
+    tool_family: "shell"
+    action_pattern: ":\\(\\)\\{:\\|:&\\}"
+    effect: "DENY"
+    priority: 5
+    reason: "Fork bomb pattern detected."
+
+  - id: "r-deny-004"
+    name: "deny_ssh_key_read"
+    tool_family: "filesystem"
+    action_pattern: ".*\\.ssh.*"
+    effect: "DENY"
+    priority: 10
+    reason: "SSH key access is unconditionally prohibited."
+
+  - id: "r-deny-005"
+    name: "deny_aws_credentials"
+    tool_family: "filesystem"
+    action_pattern: ".*\\.aws.*"
+    effect: "DENY"
+    priority: 10
+    reason: "AWS credential access is unconditionally prohibited."
+
+# Domains approved for outbound HTTP requests
+approved_domains:
+  - "localhost"
+  - "127.0.0.1"
+  - "api.internal.example.com"
+
+# Filesystem workspace (only paths under this prefix are ALLOW for writes)
+approved_workspace: "~/workspace"
+
+# Recipient domains approved for messaging
+approved_recipient_domains:
+  - "internal.example.com"
+
+# Bulk send threshold (recipients above this count trigger risk rules)
+bulk_send_threshold: 5

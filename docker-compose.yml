@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  zdg:
+    build:
+      context: .
+    image: zdg-afw:latest
+    container_name: zdg-afw
+    env_file:
+      - .env
+    # Container-appropriate path overrides.
+    # These take precedence over .env values so the DB and maildir
+    # always land on the mounted volume and startup validation passes.
+    environment:
+      ZDG_DB_PATH: /var/lib/zdg/zdg_firewall.db
+      ZDG_MAILDIR_PATH: /var/lib/zdg/maildir
+      ZDG_WORKSPACE: /var/lib/zdg/workspace
+      ZDG_FILESYSTEM_ALLOWED_ROOTS: "[]"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mutable state: DB, maildir, exports. Mount a host directory here
+      # so data survives container restarts.
+      - ./data:/var/lib/zdg
+      # Policy bundles: read-only. Edit ./policies on the host to reload.
+      - ./policies:/app/policies:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Optional TLS termination via Caddy. Enable with: docker compose --profile tls up
+  caddy:
+    image: caddy:2
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - zdg
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

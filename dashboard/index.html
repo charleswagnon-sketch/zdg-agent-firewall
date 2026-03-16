@@ -1,0 +1,495 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZDG-FR Developer Edition</title>
+  <link rel="stylesheet" href="/dashboard-assets/console.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <!-- Logo: swap src for a transparent PNG/SVG and remove the brand-logo-blend class when available -->
+        <img class="brand-logo brand-logo-blend" src="/dashboard-assets/logo.jpg" alt="ZDG">
+        <p>Run. Observe. Replay. Export.</p>
+        <div class="brand-flags">
+          <span class="flag">API-backed</span>
+          <span class="flag">Audit-first</span>
+          <span class="flag">Replay-ready</span>
+        </div>
+      </div>
+
+      <div class="panel status-panel">
+        <div class="section-tag">Developer access</div>
+        <h2>Credentials</h2>
+        <form id="auth-form" class="stack">
+          <label>
+            <span>Admin API token</span>
+            <input id="admin-token" type="password" placeholder="X-ZDG-Admin-Token">
+          </label>
+          <label>
+            <span>Display identity</span>
+            <input id="operator-name" type="text" placeholder="you@example.com">
+          </label>
+          <div class="button-row">
+            <button type="submit">Save access</button>
+            <button type="button" class="ghost" id="clear-auth">Clear</button>
+          </div>
+        </form>
+        <p class="help">Stored in browser storage only. Every API call requires the token.</p>
+      </div>
+
+      <div class="panel signal-panel">
+        <div id="status-banner" class="status-banner">
+          <span class="dot"></span>
+          <span id="status-text">API access required</span>
+        </div>
+        <div class="connection-state">
+          <span class="label">Connection</span>
+          <span id="connection-pill" class="pill error">Not connected</span>
+        </div>
+        <p id="connection-detail" class="help">Enter a valid admin API token to load runs, replay, and admin data.</p>
+        <div class="meta-pair">
+          <span>Last refresh</span>
+          <span id="last-refresh">Never</span>
+        </div>
+      </div>
+
+      <nav class="nav panel">
+        <button type="button" class="active" data-view="runs"><span class="nav-title">Runs</span><span class="nav-hint">recent governed runs</span></button>
+        <button type="button" data-view="replay"><span class="nav-title">Replay</span><span class="nav-hint">inspect a run artifact</span></button>
+        <button type="button" data-view="investigate"><span class="nav-title">Investigate</span><span class="nav-hint">dry-run without side effects</span></button>
+        <button type="button" data-view="audit"><span class="nav-title">Audit Export</span><span class="nav-hint">export, verify, diff chains</span></button>
+        <div class="nav-divider"><span>Admin</span></div>
+        <button type="button" data-view="overview"><span class="nav-title">Overview</span><span class="nav-hint">metrics + policy state</span></button>
+        <button type="button" data-view="activity"><span class="nav-title">Live Activity</span><span class="nav-hint">attempt traces</span></button>
+        <button type="button" data-view="approvals"><span class="nav-title">Approvals</span><span class="nav-hint">pending decisions</span></button>
+        <button type="button" data-view="agents"><span class="nav-title">Agents</span><span class="nav-hint">registry + lifecycle</span></button>
+        <button type="button" data-view="sessions"><span class="nav-title">Sessions</span><span class="nav-hint">session lifecycle</span></button>
+        <button type="button" data-view="killswitch"><span class="nav-title">Kill Switches</span><span class="nav-hint">scoped halts</span></button>
+        <button type="button" data-view="policy"><span class="nav-title">Policy</span><span class="nav-hint">reload bundle</span></button>
+      </nav>
+
+      <div class="panel license-panel" id="license-panel">
+        <div class="section-tag">Plan</div>
+        <h3>License</h3>
+        <div class="meta-pair">
+          <span>Plan</span>
+          <span id="license-plan" class="mono">-</span>
+        </div>
+        <div class="meta-pair">
+          <span>Status</span>
+          <span id="license-status-pill">-</span>
+        </div>
+        <p id="license-status-message" class="help"></p>
+        <details id="license-details-section" class="license-details">
+          <summary>Entitlements &amp; usage</summary>
+          <div id="license-entitlements-summary"></div>
+          <div id="license-usage-summary"></div>
+        </details>
+        <div id="billing-actions" style="display:none;margin-top:0.75rem">
+          <div class="section-tag" style="margin-top:0">Billing</div>
+          <div class="meta-pair">
+            <span>Plan</span>
+            <select id="billing-plan-select" style="font-size:0.8rem">
+              <option value="dev_monthly">Developer Monthly</option>
+              <option value="dev_annual">Developer Annual</option>
+            </select>
+          </div>
+          <div class="button-row" style="margin-top:0.5rem">
+            <button id="billing-checkout-btn" type="button" class="small">Subscribe</button>
+            <button id="billing-portal-btn" type="button" class="small ghost" style="display:none">Manage Billing</button>
+          </div>
+          <p id="billing-status-msg" class="help"></p>
+        </div>
+      </div>
+
+      <div class="panel ops-note">
+        <div class="section-tag">Quick reference</div>
+        <h3>API endpoints</h3>
+        <p class="help"><code>POST /v1/action</code> — submit a governed action<br><code>GET /v1/audit/runs</code> — list recent runs<br><code>GET /v1/audit/replay</code> — inspect a run<br><code>POST /v1/investigate</code> — dry-run evaluation<br><code>GET /v1/audit/export</code> — export audit chain<br><code>GET /docs</code> — interactive API reference<br><code>GET /health</code> — service health check</p>
+        <p class="help" style="margin-top:0.5rem;">Click any run row to open replay. Use export to download the portable audit chain.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">ZDG-FR DEVELOPER EDITION</div>
+          <h2>Replay governed agent runs</h2>
+          <p>See recent runs, inspect decisions, open replay artifacts, and export the trace. Everything stays local-first and readable.</p>
+        </div>
+        <div class="hero-side">
+          <div class="hero-badges">
+            <span class="flag">Live API</span>
+            <span class="flag">Portable audit</span>
+            <span class="flag">Replay-ready</span>
+          </div>
+          <div class="hero-slab">
+            <span class="slab-label">How it works</span>
+            <strong>Submit → govern → replay.</strong>
+            <p>Each run produces a replayable, hash-linked audit trace.</p>
+          </div>
+          <div class="button-row">
+            <button type="button" class="ghost" id="refresh-all">Refresh all</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="view" id="view-overview">
+        <div class="grid metrics">
+          <div class="metric-card"><div class="label">Attempts</div><div class="value" id="metric-total-attempts">-</div><div class="sub">Total evaluated requests</div></div>
+          <div class="metric-card"><div class="label">Allowed</div><div class="value" id="metric-total-allowed">-</div><div class="sub">Policy and wrapper allow outcomes</div></div>
+          <div class="metric-card"><div class="label">Blocked</div><div class="value" id="metric-total-blocked">-</div><div class="sub">Hard blocks and vetoes</div></div>
+          <div class="metric-card"><div class="label">Approval required</div><div class="value" id="metric-total-approval">-</div><div class="sub">Held pending review</div></div>
+        </div>
+
+        <div class="grid double">
+          <div class="panel">
+            <div class="section-head"><div><h3>Policy State</h3><p>Current bundle, active guardrails, and kill switch state.</p></div></div>
+            <div class="grid double">
+              <div class="detail-box"><strong>Active bundle</strong><span id="overview-policy-version">-</span></div>
+              <div class="detail-box"><strong>Global halt</strong><span id="overview-global-killswitch">-</span></div>
+              <div class="detail-box"><strong>Scoped halts</strong><span id="overview-scoped-killswitch">-</span></div>
+              <div class="detail-box"><strong>Pending approvals</strong><span id="overview-pending-approvals">-</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Signal Summary</h3><p>Fast read on what the policy engine is seeing right now.</p></div></div>
+            <ul class="list" id="overview-summary-list"><li><span>Refresh to populate the signal summary.</span><span class="pill info">idle</span></li></ul>
+          </div>
+        </div>
+
+        <div class="grid double">
+          <div class="panel">
+            <div class="section-head"><div><h3>Top Triggered Rules</h3><p>Most frequently fired risk or policy triggers.</p></div></div>
+            <ul class="list" id="top-rules-list"></ul>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Top Reason Codes</h3><p>Most common decision explanations coming out of the engine.</p></div></div>
+            <ul class="list" id="top-reason-codes-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-activity">
+  <div class="activity-layout" id="activity-layout">
+    <div class="panel activity-panel" id="activity-panel">
+      <div class="section-head">
+        <div><h3>Live Activity</h3><p>Recent attempt lifecycles from audit events, with policy decision and execution outcome.</p></div>
+                <div class="button-row">
+          <button type="button" class="ghost small" id="toggle-activity-drawer" aria-pressed="true">Hide detail</button>
+          <button type="button" class="ghost small" id="refresh-activity">Refresh feed</button>
+        </div>
+      </div>
+      <div class="inline-fields">
+        <label><span>Agent</span><input id="events-agent-filter" type="text" placeholder="agent-123"></label>
+        <label><span>Tool family</span><input id="events-tool-filter" type="text" placeholder="shell"></label>
+        <label><span>Event type</span><input id="events-type-filter" type="text" placeholder="ACTION_BLOCKED"></label>
+      </div>
+      <div class="button-row" style="margin-top:0.8rem;">
+        <button type="button" class="ghost" id="apply-event-filters">Apply filters</button>
+        <button type="button" class="ghost" id="clear-event-filters">Clear filters</button>
+      </div>
+      <div class="topline" style="margin-top:1rem;"><span id="events-count">No events loaded yet.</span><span>Click a row or use Open to inspect the full lifecycle trace.</span></div>
+      <div class="table-wrap activity-table-wrap">
+        <table>
+          <thead><tr><th>Last seen</th><th>Attempt</th><th>Decision</th><th>Execution</th><th>Agent / Tool</th><th>Detail</th></tr></thead>
+          <tbody id="events-table-body"><tr><td colspan="6" class="empty">Refresh to load recent activity.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <aside class="panel activity-drawer" id="activity-drawer">
+      <div class="section-head">
+        <div><h3>Attempt Detail</h3><p>Open an attempt to inspect the policy decision, execution result, and lifecycle timeline.</p></div>
+        <div class="button-row"><button type="button" class="ghost small" id="clear-activity-selection">Clear selection</button></div>
+      </div>
+      <div id="activity-detail-empty" class="empty">Select an attempt row to inspect its lifecycle, decision reasoning, and raw event details.</div>
+      <div id="activity-detail-card" class="stack hidden">
+        <div class="grid double">
+          <div class="detail-box"><strong>Attempt</strong><span id="activity-detail-attempt">-</span></div>
+          <div class="detail-box"><strong>Last seen</strong><span id="activity-detail-last-seen">-</span></div>
+          <div class="detail-box"><strong>Decision</strong><span id="activity-detail-decision">-</span></div>
+          <div class="detail-box"><strong>Execution</strong><span id="activity-detail-execution">-</span></div>
+        </div>
+        <div class="detail-box">
+          <strong>Context</strong>
+          <div id="activity-detail-context" class="detail-summary">-</div>
+        </div>
+        <div class="detail-box">
+          <strong>Timeline</strong>
+          <ul id="activity-detail-timeline" class="activity-timeline"></ul>
+        </div>
+        <div class="detail-box">
+          <strong>Latest payload</strong>
+          <pre class="output" id="activity-detail-payload">Select an attempt to inspect raw payload details.</pre>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+      <section class="view" id="view-approvals">
+        <div class="panel">
+          <div class="section-head">
+            <div><h3>Pending Approvals</h3><p>Resolve threshold-driven actions that are awaiting operator review.</p></div>
+            <div class="button-row"><button type="button" class="ghost small" id="refresh-approvals">Refresh queue</button></div>
+          </div>
+          <div class="topline"><span id="approvals-count">No approvals loaded yet.</span><span>Approvals are single-consumption and payload-bound.</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Approval</th><th>Agent</th><th>Tool</th><th>Risk</th><th>Reason</th><th>Expires</th><th>Actions</th></tr></thead>
+              <tbody id="approvals-table-body"><tr><td colspan="7" class="empty">Approval queue will appear here.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-agents">
+        <div class="split">
+          <div class="panel">
+            <div class="section-head"><div><h3>Register Agent</h3><p>Register an agent identity before submitting governed actions.</p></div></div>
+            <form id="agent-form" class="form-grid">
+              <label><span>Agent ID</span><input id="agent-id-input" type="text" placeholder="agent-pilot-01"></label>
+              <label><span>Agent type</span><input id="agent-type-input" type="text" placeholder="openclaw"></label>
+              <label><span>Metadata JSON</span><textarea id="agent-metadata-input" placeholder='{"cohort": "pilot", "owner": "research"}'></textarea></label>
+              <div class="button-row"><button type="submit">Register agent</button></div>
+            </form>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Agent Registry</h3><p>Lifecycle state and operator controls for registered agents.</p></div><div class="button-row"><button type="button" class="ghost small" id="refresh-agents">Refresh agents</button></div></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Agent</th><th>Status</th><th>Details</th><th>Actions</th></tr></thead>
+                <tbody id="agents-table-body"><tr><td colspan="4" class="empty">Registered agents will appear here.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-sessions">
+        <div class="split">
+          <div class="panel">
+            <div class="section-head"><div><h3>Create Session</h3><p>Create a tracked session for an agent or investigation flow.</p></div></div>
+            <form id="session-form" class="form-grid">
+              <label><span>Agent ID (optional)</span><input id="session-agent-input" type="text" placeholder="agent-pilot-01"></label>
+              <label><span>Creation source</span><input id="session-source-input" type="text" value="console"></label>
+              <label><span>Metadata JSON</span><textarea id="session-metadata-input" placeholder='{"cohort": "pilot", "ticket": "INC-42"}'></textarea></label>
+              <div class="button-row"><button type="submit">Create session</button></div>
+            </form>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Sessions</h3><p>Track active, suspended, and closed session state with explicit operator actions.</p></div><div class="button-row"><button type="button" class="ghost small" id="refresh-sessions">Refresh sessions</button></div></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Session</th><th>Status</th><th>Details</th><th>Actions</th></tr></thead>
+                <tbody id="sessions-table-body"><tr><td colspan="4" class="empty">Session data will appear here.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-killswitch">
+        <div class="grid double">
+          <div class="panel">
+            <div class="section-head"><div><h3>Current Kill Switch State</h3><p>Global and scoped halts currently active in the node.</p></div><div class="button-row"><button type="button" class="ghost small" id="refresh-killswitch">Refresh status</button></div></div>
+            <div id="killswitch-status-card" class="empty">Kill switch state will appear here.</div>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Kill Switch Controls</h3><p>Activate or reset scoped halts with explicit operator intent.</p></div></div>
+            <form id="killswitch-form" class="form-grid">
+              <div class="form-grid two">
+                <label><span>Action</span><select id="killswitch-action-input"><option value="activate">Activate</option><option value="reset">Reset</option></select></label>
+                <label><span>Scope</span><select id="killswitch-scope-input"><option value="global">global</option><option value="agent">agent</option><option value="tool_family">tool_family</option><option value="session">session</option></select></label>
+              </div>
+              <label><span>Scope value (blank for global)</span><input id="killswitch-scope-value-input" type="text" placeholder="agent-123 or shell or ses_..."></label>
+              <label><span>Comment</span><textarea id="killswitch-comment-input" placeholder="Incident response note or reset rationale."></textarea></label>
+              <div class="button-row"><button type="submit" class="warn">Apply kill switch action</button></div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-policy">
+        <div class="grid double">
+          <div class="panel">
+            <div class="section-head"><div><h3>Active Policy Bundle</h3><p>Read the current policy identity before any reload.</p></div></div>
+            <div class="grid double">
+              <div class="detail-box"><strong>Bundle version</strong><span id="policy-current-version">-</span></div>
+              <div class="detail-box"><strong>Reload state</strong><span id="policy-reload-state">Idle</span></div>
+            </div>
+            <p class="fineprint" style="margin-top:0.9rem;">Use reload when the configured bundle file on disk has changed. Reload validates the candidate bundle before swapping and records a POLICY_RELOAD audit event.</p>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Reload Policy</h3><p>Hot-reload the active bundle from disk without restarting the node.</p></div></div>
+            <div class="button-row"><button type="button" id="reload-policy">Reload bundle</button></div>
+            <pre class="output" id="policy-output">No reload performed yet.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-investigate">
+        <div class="panel">
+          <div class="section-head"><div><h3>Investigate Payload</h3><p>Run the full evaluation pipeline without side effects, writes, or execution.</p></div></div>
+          <div class="form-grid">
+            <label><span>ActionRequest JSON</span><textarea id="investigate-input"></textarea></label>
+            <div class="button-row"><button type="button" id="run-investigate">Run investigate</button></div>
+          </div>
+        </div>
+        <div class="grid double">
+          <div class="panel">
+            <div class="section-head"><div><h3>Decision Summary</h3><p>High-signal interpretation of the returned evaluation trace.</p></div></div>
+            <div class="grid double" id="investigate-summary-grid">
+              <div class="detail-box"><strong>Decision</strong><span>-</span></div>
+              <div class="detail-box"><strong>Reason code</strong><span>-</span></div>
+              <div class="detail-box"><strong>Risk score</strong><span>-</span></div>
+              <div class="detail-box"><strong>Payload hash</strong><span>-</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Investigate Trace</h3><p>Full response from the API for deeper debugging.</p></div></div>
+            <pre class="output" id="investigate-output">Run investigate to populate the trace.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-audit">
+        <div class="audit-grid">
+          <div class="panel">
+            <div class="section-head"><div><h3>Export</h3><p>Export a portable chain as JSON or NDJSON.</p></div></div>
+            <div class="form-grid">
+              <label><span>Chain ID</span><input id="audit-export-chain" type="text" placeholder="zdg-local-chain-01 or session:ses_..."></label>
+              <label><span>Format</span><select id="audit-export-format"><option value="json">json</option><option value="ndjson">ndjson</option></select></label>
+              <div class="button-row"><button type="button" id="run-audit-export">Export chain</button><button type="button" class="ghost" id="copy-audit-export">Copy</button></div>
+              <pre class="output" id="audit-export-output">Export output will appear here.</pre>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Verify</h3><p>Verify a portable export by pasting JSON or NDJSON.</p></div></div>
+            <div class="form-grid">
+              <label><span>Chain export payload</span><textarea id="audit-verify-input" placeholder="Paste exported JSON or NDJSON here."></textarea></label>
+              <div class="button-row"><button type="button" id="run-audit-verify">Verify chain</button></div>
+              <pre class="output" id="audit-verify-output">Verification results will appear here.</pre>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Diff</h3><p>Compare two exports and inspect the common prefix and divergence point.</p></div></div>
+            <div class="form-grid">
+              <label><span>Left export</span><textarea id="audit-diff-left" placeholder="Paste JSON or NDJSON export."></textarea></label>
+              <label><span>Right export</span><textarea id="audit-diff-right" placeholder="Paste JSON or NDJSON export."></textarea></label>
+              <div class="button-row"><button type="button" id="run-audit-diff">Diff chains</button></div>
+              <pre class="output" id="audit-diff-output">Diff results will appear here.</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view active" id="view-runs">
+        <div class="panel">
+          <div class="section-head">
+            <div><h3>Recent Runs</h3><p>Browse recent governed runs. Click any row to open replay and export the trace.</p></div>
+            <div class="button-row"><button type="button" class="ghost small" id="refresh-runs">Refresh</button></div>
+          </div>
+          <div class="inline-fields runs-filters">
+            <label><span>Decision</span>
+              <select id="runs-decision-filter">
+                <option value="">All</option>
+                <option value="ALLOW">ALLOW</option>
+                <option value="BLOCK">BLOCK</option>
+                <option value="APPROVAL_REQUIRED">APPROVAL_REQUIRED</option>
+              </select>
+            </label>
+            <label><span>Agent ID</span><input id="runs-agent-filter" type="text" placeholder="agent-123"></label>
+            <label><span>Session ID</span><input id="runs-session-filter" type="text" placeholder="ses_..."></label>
+            <label><span>Tool family</span><input id="runs-tool-filter" type="text" placeholder="shell"></label>
+            <div class="runs-filter-actions">
+              <button type="button" class="ghost small" id="apply-runs-filters">Apply</button>
+              <button type="button" class="ghost small" id="clear-runs-filters">Clear</button>
+            </div>
+          </div>
+          <div class="topline">
+            <span id="runs-count-label">Refresh to load recent runs.</span>
+            <span id="runs-page-label"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="runs-table">
+              <thead>
+                <tr>
+                  <th>Started / Attempt</th>
+                  <th>Agent / Tool / Action</th>
+                  <th>Duration</th>
+                  <th>Decision</th>
+                  <th>Reason</th>
+                  <th>Exec status</th>
+                  <th>Replay</th>
+                </tr>
+              </thead>
+              <tbody id="runs-table-body">
+                <tr><td colspan="7" class="empty"><strong>No runs yet</strong><br>Submit your first governed action from <code>/docs</code> or your local agent integration to see replay artifacts here.<br><small>Quick start: open <code>/docs</code>, call <code>POST /v1/action</code>, then return here to inspect the run.</small></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="button-row" style="margin-top:0.9rem;">
+            <button type="button" class="ghost small" id="runs-prev-page">Previous</button>
+            <span id="runs-page-info" class="meta" style="padding:0 0.5rem;"></span>
+            <button type="button" class="ghost small" id="runs-next-page">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-replay">
+        <div id="replay-empty-state" class="panel">
+          <div class="section-head"><div><h3>Replay</h3><p>Select a run from the Runs view, or enter an attempt ID below.</p></div></div>
+          <div class="inline-fields" style="margin-top:0.8rem;">
+            <label><span>Attempt ID</span><input id="replay-manual-id" type="text" placeholder="atm_..."></label>
+          </div>
+          <div class="button-row" style="margin-top:0.8rem;">
+            <button type="button" id="load-replay-manual">Load replay</button>
+          </div>
+        </div>
+
+        <div id="replay-content" class="hidden">
+          <div class="panel replay-header-panel">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow">Replay artifact</div>
+                <h3 id="replay-attempt-heading">—</h3>
+              </div>
+              <div class="button-row">
+                <button type="button" class="ghost small" id="back-to-runs">← Runs</button>
+                <button type="button" class="ghost small" id="export-replay-snapshot">Export snapshot</button>
+                <button type="button" class="ghost small" id="export-replay-json">Export raw JSON</button>
+              </div>
+            </div>
+          </div>
+          <div id="replay-hero" class="replay-hero hidden"></div>
+          <div id="replay-summary-primary"></div>
+          <div class="replay-summary-secondary" id="replay-summary-grid"></div>
+          <div class="panel">
+            <div class="section-head"><div><h3>Timeline</h3><p>Ordered canonical events. Expand any event to inspect the raw persisted payload.</p></div></div>
+            <div id="replay-timeline-list"></div>
+          </div>
+        </div>
+
+        <div id="replay-error-state" class="panel hidden">
+          <p id="replay-error-message" class="empty">Unable to load replay artifact.</p>
+          <div class="button-row" style="margin-top:0.8rem;">
+            <button type="button" class="ghost small" id="back-to-runs-from-error">← Back to runs</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/dashboard-assets/console.js"></script>
+</body>
+</html>
+
+
+
+
+

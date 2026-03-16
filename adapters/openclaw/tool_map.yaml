@@ -1,0 +1,44 @@
+﻿openclaw_version: "2026-03"
+openclaw_tool_map:
+  bash:
+    tool_family: shell
+    action: execute
+    args_map:
+      command:
+        sources: [command]
+      cwd:
+        sources: [working_dir, cwd]
+
+  text_editor.view:
+    tool_family: filesystem
+    action: read
+    args_map:
+      path:
+        sources: [path]
+      operation:
+        const: read
+
+  text_editor.write:
+    tool_family: filesystem
+    action: write
+    args_map:
+      path:
+        sources: [path]
+      content:
+        sources: [content, file_text]
+      operation:
+        const: write
+
+  text_editor.list:
+    tool_family: filesystem
+    action: list
+    args_map:
+      path:
+        sources: [path]
+      operation:
+        const: list
+
+  mcp__*:
+    tool_family: http
+    action: request
+    args_passthrough: true

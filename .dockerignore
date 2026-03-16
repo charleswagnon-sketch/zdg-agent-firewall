@@ -1,0 +1,39 @@
+# Dependencies and virtual environments
+.venv/
+.venv.py312.bak/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local database files — never bake state into the image
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets — must never enter the image
+.env
+
+# Runtime data directory
+data/
+
+# Test artifacts
+.pytest_cache/
+tests/
+htmlcov/
+.coverage
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Version control
+.git/
+.gitignore
+
+# Editor and OS
+.DS_Store
+*.swp
+*.swo
