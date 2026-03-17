@@ -1,5 +1,62 @@
 # Release Notes
 
+## v0.1.0-rc3 — 2026-03-16
+
+Third public release candidate of **ZDG-FR Developer Edition**.
+
+### What changed
+
+**Evaluation mode replaces permissive unmanaged mode**
+
+If no license is activated, ZDG-FR now runs in evaluation mode instead of allowing unrestricted feature access.
+
+Evaluation mode limits:
+- 25 runs per month
+- 3-day replay retention
+- 0 exports
+- advanced filters disabled
+- spend analytics disabled
+
+**Commercial ladder is now coherent**
+
+- Evaluation < Free < dev_monthly / dev_annual
+
+First run still works without license activation. Free is now more capable than evaluation mode. Paid tiers remain the full developer path.
+
+### Runtime impact
+
+Real behavior change for installs with no active license:
+- previous behavior: permissive unmanaged mode (all features accessible, no caps)
+- new behavior: restricted evaluation mode (25 runs/month, 3-day replay, no exports)
+
+Free and paid plans are unaffected.
+
+### Smoke test result
+
+Evaluation/free/paid ladder verified directly: 8 passed, 0 failed.
+
+| Tier | Coverage |
+|---|---|
+| Evaluation (no license) | gate points, status shape, runs accessible, exports blocked |
+| Free | export cap=0 blocks |
+| dev_monthly | runs and exports work |
+| Active licensed mode | ungated feature access |
+
+### Test suite
+
+424 passed, 6 pre-existing failures, 0 new regressions.
+
+The 6 remaining failures are pre-existing real-execution / credential-trace issues (`test_cred_trace01.py` ×4, `test_phase2c*.py` ×2) and are not introduced by rc3.
+
+### Known limitations
+
+- Single-node SQLite. Not suitable for high write concurrency or multi-node federation.
+- `/v1/action` is unauthenticated. Place behind a reverse proxy with auth for any internet-facing deployment.
+- Real execution runs locally on the server host. Review wrapper safety settings before enabling.
+- 6 integration tests (`test_cred_trace01.py`, `test_phase2c*.py`) require `ZDG_REAL_EXEC=true` and are expected to skip/fail in default configuration.
+
+---
+
 ## v0.1.0-rc2 — 2026-03-16
 
 Second public release candidate of **ZDG-FR Developer Edition**.
@@ -66,7 +123,7 @@ First public release candidate of **ZDG-FR Developer Edition**.
 **Licensing**
 - Plan catalog: `free`, `dev_monthly`, `dev_annual`
 - Entitlement gating: `replay_history_days`, `max_monthly_runs`, `max_monthly_exports`, `debug_bundle_export`, `spend_analytics`, `advanced_filters`
-- Unmanaged mode (no license activated) — all features accessible
+- Evaluation mode (no license activated) — limited access; see rc3 for enforced limits
 
 **Ops tooling**
 - `cli/validate_config.py` — startup configuration validator
