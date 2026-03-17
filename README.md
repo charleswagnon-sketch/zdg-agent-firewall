@@ -152,7 +152,7 @@ curl -s -X POST http://127.0.0.1:8000/v1/investigate \
 | `dev_monthly` | 10,000 | 90 days | 100 | ✓ |
 | `dev_annual` | 10,000 | 90 days | 100 | ✓ |
 
-No license activated = unmanaged mode (all features accessible, no gating).
+No license activated = evaluation mode (25 runs/month, 3-day replay, no exports). Activate a plan to increase limits.
 
 Activate a plan:
 
@@ -200,7 +200,6 @@ pytest -q
 ## Docs
 
 - [Quick Start](docs/QUICKSTART.md)
-- [Operator Runbook](docs/OPERATOR_RUNBOOK.md)
 - [Trial Operations](docs/TRIAL_OPS.md)
 - [Configuration reference](.env.example)
 - Interactive API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)

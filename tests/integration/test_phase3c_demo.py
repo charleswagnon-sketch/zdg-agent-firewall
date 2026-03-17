@@ -41,6 +41,12 @@ def test_demo_runner_safe_shell_scenario(make_client):
 def test_demo_runner_all_registered_scenarios(make_client, admin_headers):
     admin_token = admin_headers["X-ZDG-Admin-Token"]
     with make_client() as client:
+        # audit-export-verify requires debug_bundle_export; activate dev_monthly.
+        client.post(
+            "/v1/license/activate",
+            json={"email": "test@example.com", "plan_code": "dev_monthly"},
+            headers=admin_headers,
+        )
         transport = _transport_from_testclient(client)
         with httpx.Client(base_url="http://testserver", transport=transport, trust_env=False) as http_client:
             results = run_scenarios(

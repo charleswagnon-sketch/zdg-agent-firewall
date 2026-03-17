@@ -184,7 +184,7 @@ curl -s -X POST "$ZDG_URL/v1/license/activate" \
 | Trial provisioning is admin-led | Trial licenses are provisioned via API or script; subscription billing flows are separate |
 | Monthly windows are calendar-month | Cap counters reset at UTC midnight on the 1st of each month |
 | No license renewal UI | Use `POST /v1/license/activate` to reissue a fresh license |
-| Unmanaged mode is for local/self-hosted evaluation | If no license is active, developer-facing feature caps are not enforced |
+| Evaluation mode applies synthetic limits | No active license: 25 runs/month, 3-day replay, no exports. Activate a plan to raise limits. |
 
 ---
 

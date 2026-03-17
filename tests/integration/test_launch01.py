@@ -172,14 +172,14 @@ def test_activate_unknown_plan_no_entitlements_accepted(make_client):
 # ── LAUNCH-008: status_message — unmanaged mode ───────────────────────────────
 
 def test_status_message_unmanaged_mode(make_client):
-    """LAUNCH-008: GET /v1/license returns status_message for unmanaged mode."""
+    """LAUNCH-008: GET /v1/license returns status_message for evaluation mode (no license)."""
     with make_client() as client:
         status = client.get("/v1/license", headers=ADMIN).json()
         assert status["unmanaged_mode"] is True
         assert "status_message" in status
         msg = status["status_message"]
-        assert "unmanaged" in msg.lower() or "no license" in msg.lower()
-        assert "accessible" in msg.lower()
+        assert "evaluation" in msg.lower() or "no license" in msg.lower()
+        assert "limited" in msg.lower() or "activate" in msg.lower()
 
 
 # ── LAUNCH-009: status_message — active license ───────────────────────────────

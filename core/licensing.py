@@ -2,7 +2,7 @@
 core/licensing.py — Lightweight licensing and entitlements service for ZDG-FR Developer Edition.
 
 Enforcement model:
-  No license registered  → unmanaged mode — all features accessible (permissive).
+  No license registered  → evaluation mode — UNMANAGED_LIMITS apply (stricter than Free).
   License active/trialing → enforce entitlements from DB (opt-in per feature).
   License expired/revoked → gated features blocked (raises LicenseError → HTTP 402).
 
@@ -14,8 +14,9 @@ Entitlement semantics (opt-in gating):
   If Entitlement.enabled = False → feature is blocked.
   If Entitlement.limit_value is set → numeric cap applies (None = unlimited).
 
-This keeps the free tier (no license registered) fully functional and lets
-the licensing slice add explicit gates without touching existing behavior.
+Commercial ladder: evaluation mode < free < dev_monthly / dev_annual.
+Evaluation mode is intentionally more restrictive than Free to encourage
+activation. No license activation is required for a first run.
 
 Feature codes used by enforcement hooks:
   debug_bundle_export   — governs GET /v1/audit/export
@@ -84,6 +85,28 @@ PLAN_CATALOG: dict[str, dict] = {
             {"feature_code": "max_monthly_exports",  "enabled": True,  "limit_value": 100},
         ],
     },
+}
+
+
+# ── Unmanaged evaluation limits ───────────────────────────────────────────────
+#
+# Applied when no license has ever been registered (truly unmanaged / evaluation
+# mode). These limits are intentionally stricter than the Free plan so the
+# commercial ladder is: evaluation < free < dev_monthly / dev_annual.
+#
+# Compared to Free plan:
+#   replay_history_days : 3 days  (Free: 7)
+#   max_monthly_runs    : 25      (Free: 500)
+#   max_monthly_exports : 0       (Free: 0  — same; both block export)
+#   advanced_filters    : False   (Free: False — same)
+#   spend_analytics     : False   (Free: False — same)
+
+UNMANAGED_LIMITS: dict[str, dict] = {
+    "replay_history_days": {"enabled": True,  "limit_value": 3},
+    "max_monthly_runs":    {"enabled": True,  "limit_value": 25},
+    "max_monthly_exports": {"enabled": True,  "limit_value": 0},
+    "advanced_filters":    {"enabled": False, "limit_value": None},
+    "spend_analytics":     {"enabled": False, "limit_value": None},
 }
 
 
@@ -163,14 +186,26 @@ def get_entitlements(session: "Session", license_id: str) -> dict[str, Entitleme
 def check_feature(session: "Session", feature_code: str) -> bool:
     """Return True if the feature is accessible, False if blocked.
 
-    No license registered → True (unmanaged mode).
+    No license registered (evaluation mode) → check UNMANAGED_LIMITS.
     License active/trialing + no entitlement row → True (opt-in gating).
     License active/trialing + entitlement.enabled = False → False.
     License expired/revoked → False for any query (all gated features blocked).
     """
+    from sqlmodel import select
+
     license = get_active_license(session)
     if license is None:
-        return True  # unmanaged mode — no enforcement
+        any_license = session.exec(
+            select(License).order_by(License.issued_at.desc()).limit(1)
+        ).first()
+        if any_license is None:
+            # Truly unmanaged evaluation mode — apply evaluation limits.
+            ent = UNMANAGED_LIMITS.get(feature_code)
+            if ent is not None:
+                return ent["enabled"]
+            return True  # feature not in evaluation limits → accessible
+        # An inactive license exists (expired/revoked) — retain existing behavior.
+        return True
     if license.status not in ("active", "trialing"):
         return False
     entitlements = get_entitlements(session, license.license_id)
@@ -186,7 +221,7 @@ def require_feature(session: "Session", feature_code: str) -> None:
     Call this at LIC-01 gate points. Route handlers convert LicenseError to
     HTTP 402 with a detail block describing the feature and reason.
 
-    No license registered (ever) → returns silently (unmanaged mode, all features open).
+    No license registered (evaluation mode) → check UNMANAGED_LIMITS; raise if disabled.
     Expired/revoked license → raises LicenseError even though get_active_license returns None.
     """
     from sqlmodel import select
@@ -198,7 +233,11 @@ def require_feature(session: "Session", feature_code: str) -> None:
             select(License).order_by(License.issued_at.desc()).limit(1)
         ).first()
         if any_license is None:
-            return  # truly unmanaged — no license ever registered
+            # Truly unmanaged evaluation mode — apply evaluation limits.
+            ent = UNMANAGED_LIMITS.get(feature_code)
+            if ent is not None and not ent["enabled"]:
+                raise LicenseError(feature_code, "feature_disabled")
+            return  # not restricted in evaluation mode
         # A license exists but is not active/trialing → enforce block
         if any_license.status == "expired":
             raise LicenseError(feature_code, "license_expired")
@@ -215,7 +254,7 @@ def require_feature(session: "Session", feature_code: str) -> None:
 def get_feature_limit(session: "Session", feature_code: str) -> int | None:
     """Return the numeric limit for a feature, or None (unlimited).
 
-    No license (ever) → None (unlimited in unmanaged mode).
+    No license (evaluation mode) → return UNMANAGED_LIMITS value, or None if not listed.
     Active license + no entitlement → None (unlimited).
     Active license + entitlement.limit_value set → return limit_value.
     Expired/revoked license → 0 (fully restricted).
@@ -229,7 +268,11 @@ def get_feature_limit(session: "Session", feature_code: str) -> int | None:
             select(License).order_by(License.issued_at.desc()).limit(1)
         ).first()
         if any_license is None:
-            return None  # truly unmanaged — unlimited
+            # Truly unmanaged evaluation mode — return evaluation limit.
+            ent = UNMANAGED_LIMITS.get(feature_code)
+            if ent is not None:
+                return ent["limit_value"]
+            return None  # feature not in evaluation limits → unlimited
         return 0  # expired/revoked — fully restricted
     entitlements = get_entitlements(session, license.license_id)
     ent = entitlements.get(feature_code)
@@ -315,10 +358,10 @@ def enforce_monthly_exports_cap(session: "Session") -> "License | None":
     """Check the monthly export cap. Raises LicenseError if exceeded.
 
     Returns the active License on success so the caller can record usage without
-    a second DB lookup. Returns None for unmanaged mode (no enforcement).
+    a second DB lookup. Returns None when no active license and limit is None.
 
     Semantics:
-      Unmanaged → None limit → returns None (caller skips usage recording).
+      Evaluation mode → limit=0 (from UNMANAGED_LIMITS) → always blocked.
       Active license, no max_monthly_exports entitlement → None → unlimited,
         returns the License so usage is still recorded for observability.
       Active license, limit_value set → enforce.
@@ -328,13 +371,22 @@ def enforce_monthly_exports_cap(session: "Session") -> "License | None":
 
     limit = get_feature_limit(session, "max_monthly_exports")
     if limit is None:
-        # Could be unmanaged OR active/trialing with no entitlement row (unlimited).
+        # Active/trialing with no entitlement row (unlimited).
         # Return the active license so callers can record usage for observability.
         return get_active_license(session)
 
     license = get_active_license(session)
     if license is None:
-        # limit != None means an expired/revoked license exists (get_feature_limit → 0)
+        # Non-None limit with no active license — either evaluation mode
+        # (limit from UNMANAGED_LIMITS) or an expired/revoked license. Block either way.
+        any_license = session.exec(
+            select(License).order_by(License.issued_at.desc()).limit(1)
+        ).first()
+        if any_license is None:
+            raise LicenseError(
+                "max_monthly_exports",
+                f"monthly_export_limit_exceeded:0/{limit}",
+            )
         raise LicenseError(
             "max_monthly_exports",
             "monthly_export_limit_exceeded:license_not_active",
@@ -367,7 +419,7 @@ def record_export_usage(session: "Session", license_id: str) -> None:
 def _license_status_message(license: "License | None", unmanaged: bool) -> str:
     """Return a human-readable status message for a license object."""
     if unmanaged or license is None:
-        return "Unmanaged mode — no license registered. All features accessible."
+        return "Evaluation mode — no license registered. Feature access is limited; activate a plan for full access."
     status = license.status
     plan = license.plan_code
     if status == "active":
@@ -400,26 +452,35 @@ def get_license_status(session: "Session") -> dict[str, Any]:
             select(License).order_by(License.issued_at.desc()).limit(1)
         ).first()
         if any_license is None:
-            # Unmanaged mode: still surface run count so developers can see activity.
+            # Evaluation mode: surface run count and evaluation limits.
             runs_used = count_monthly_runs(session)
             month_label = _current_month_start().strftime("%Y-%m")
+            runs_limit = UNMANAGED_LIMITS["max_monthly_runs"]["limit_value"]
+            exports_limit = UNMANAGED_LIMITS["max_monthly_exports"]["limit_value"]
             return {
                 "unmanaged_mode": True,
                 "status_message": _license_status_message(None, unmanaged=True),
                 "license": None,
                 "plan_definition": None,
-                "entitlements": [],
+                "entitlements": [
+                    {
+                        "feature_code": code,
+                        "enabled": ent["enabled"],
+                        "limit_value": ent["limit_value"],
+                    }
+                    for code, ent in UNMANAGED_LIMITS.items()
+                ],
                 "installations": [],
                 "usage_summary": {
                     "window": month_label,
                     "max_monthly_runs": {
                         "used": runs_used,
-                        "limit": None,
-                        "exceeded": False,
+                        "limit": runs_limit,
+                        "exceeded": runs_used >= runs_limit,
                     },
                     "max_monthly_exports": {
                         "used": 0,
-                        "limit": None,
+                        "limit": exports_limit,
                         "exceeded": False,
                     },
                 },

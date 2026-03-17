@@ -7,7 +7,7 @@ existing unmanaged/expired/revoked semantics are preserved.
 
 Test coverage:
   LIMITS-001  Unmanaged mode — runs cap not enforced (can submit unlimited runs)
-  LIMITS-002  Unmanaged mode — exports not cap-enforced; usage_summary shows runs
+  LIMITS-002  Evaluation mode — exports blocked (limit=0); usage_summary shows evaluation limits
   LIMITS-003  Active license, limit_value=2 runs → 3rd run returns 402
   LIMITS-004  402 detail includes feature='max_monthly_runs' and reason string
   LIMITS-005  Runs below cap proceed normally (decision field present)
@@ -18,7 +18,7 @@ Test coverage:
   LIMITS-010  Export cap enforced: 3rd export blocked when limit_value=2
   LIMITS-011  Export 402 detail has feature='max_monthly_exports'
   LIMITS-012  Export usage recorded: usage_summary.max_monthly_exports.used increments
-  LIMITS-013  Unmanaged mode — exports unlimited, usage recorded for active license
+  LIMITS-013  Evaluation mode — exports blocked (max_monthly_exports=0), never succeed without a license
   LIMITS-014  dev_monthly plan — full entitlement set; runs and exports work
   LIMITS-015  usage_summary.window is current calendar month (YYYY-MM format)
   LIMITS-016  free plan — max_monthly_exports=0, blocked even with debug_bundle_export enabled override
@@ -89,25 +89,28 @@ def test_unmanaged_mode_runs_not_capped(make_client):
             assert r.json()["decision"] in ("ALLOW", "BLOCK")  # policy, not quota
 
 
-# ── LIMITS-002: Unmanaged exports unlimited, usage_summary present ────────────
+# ── LIMITS-002: Evaluation mode — exports blocked, usage_summary shows limits ──
 
 def test_unmanaged_mode_exports_and_usage_summary(make_client):
-    """LIMITS-002: Unmanaged mode — exports unlimited, usage_summary shows runs."""
+    """LIMITS-002: Evaluation mode — exports blocked; usage_summary shows evaluation limits."""
     with make_client() as client:
         _submit(client)
         _submit(client)
-        _export(client)
+
+        # Export must be blocked in evaluation mode (max_monthly_exports=0)
+        r = _export(client, expect_200=False)
+        assert r.status_code == 402
 
         status = client.get("/v1/license", headers=ADMIN).json()
         assert status["unmanaged_mode"] is True
         usage = status["usage_summary"]
         assert "window" in usage
-        # Runs are counted even in unmanaged mode
+        # Runs are counted and limit is the evaluation cap (not None)
         assert usage["max_monthly_runs"]["used"] >= 2
-        assert usage["max_monthly_runs"]["limit"] is None
+        assert usage["max_monthly_runs"]["limit"] == 25
         assert usage["max_monthly_runs"]["exceeded"] is False
-        # Exports: unmanaged → no license_id to record against, so used=0
-        assert usage["max_monthly_exports"]["limit"] is None
+        # Exports: evaluation mode → limit=0 (always blocked)
+        assert usage["max_monthly_exports"]["limit"] == 0
         assert usage["max_monthly_exports"]["exceeded"] is False
 
 
@@ -285,19 +288,22 @@ def test_export_usage_recorded_in_usage_summary(make_client):
         assert usage["max_monthly_exports"]["limit"] == 10
 
 
-# ── LIMITS-013: Unmanaged exports — unlimited ─────────────────────────────────
+# ── LIMITS-013: Evaluation mode exports — always blocked ──────────────────────
 
 def test_unmanaged_exports_unlimited(make_client):
-    """LIMITS-013: No license → exports unlimited and never blocked by cap."""
+    """LIMITS-013: No license (evaluation mode) → exports always blocked (max_monthly_exports=0)."""
     with make_client() as client:
         status = client.get("/v1/license", headers=ADMIN).json()
         assert status["unmanaged_mode"] is True
 
-        for _ in range(5):
-            _export(client)
+        # All export attempts must return 402 in evaluation mode
+        for _ in range(3):
+            r = _export(client, expect_200=False)
+            assert r.status_code == 402
+            assert r.json()["detail"]["feature"] == "max_monthly_exports"
 
         usage = _usage(client)
-        assert usage["max_monthly_exports"]["limit"] is None
+        assert usage["max_monthly_exports"]["limit"] == 0
         assert usage["max_monthly_exports"]["exceeded"] is False
 
 

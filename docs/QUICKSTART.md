@@ -1,4 +1,4 @@
-# ZDG Agent Firewall — Developer Quickstart
+# ZDG-FR Developer Edition — Developer Quickstart
 
 This guide covers everything needed to go from a fresh clone to a running instance with a governed run, a visible replay, and an active license. It takes about 10 minutes.
 
@@ -68,7 +68,7 @@ curl -s http://127.0.0.1:8000/health
 
 ## 5. Check license status (initial)
 
-New installations start in **unmanaged mode** — all features accessible, no enforcement. No license is required to start evaluating.
+New installations start in **evaluation mode** — no license is required to start evaluating. Evaluation mode applies limited feature access: 25 runs/month, 3-day replay retention, no exports. Activate a plan to increase limits.
 
 ```bash
 curl -s http://127.0.0.1:8000/v1/license \
@@ -79,10 +79,10 @@ Response:
 ```json
 {
   "unmanaged_mode": true,
-  "status_message": "Unmanaged mode — no license registered. All features accessible.",
+  "status_message": "Evaluation mode — no license registered. Feature access is limited; activate a plan for full access.",
   "license": null,
   "plan_definition": null,
-  "entitlements": [],
+  "entitlements": [...],
   "installations": []
 }
 ```
@@ -99,7 +99,7 @@ You can activate a license at any time. Canonical plan codes:
 | `dev_monthly` | Full feature access. Monthly billing cycle.         |
 | `dev_annual`  | Full feature access. Annual billing cycle.          |
 
-> **Warning — activating `free` is more restrictive than unmanaged mode.** In unmanaged mode (no license registered) all features are accessible with no caps. Activating the `free` plan enforces explicit gates: exports are blocked, replay is limited to 7 days, and the monthly run cap is 500. If you are evaluating the product, stay in unmanaged mode or activate `dev_monthly`.
+> **Note — `free` plan is more capable than evaluation mode.** Evaluation mode (no license) caps runs at 25/month and replay at 3 days. Activating `free` raises those to 500 runs/month and 7-day replay. For a more capable baseline before committing to a paid plan, activate `free` rather than staying in evaluation mode.
 
 To see all plan definitions and their default entitlements:
 
@@ -254,18 +254,18 @@ Navigate to `http://127.0.0.1:8000/dashboard` in your browser.
 
 When a gated feature is blocked you receive HTTP 402 with a `detail.reason` and `detail.feature` field.
 
-| Feature code           | What it gates                     | free    | dev_monthly | dev_annual |
-|------------------------|-----------------------------------|---------|-------------|------------|
-| `debug_bundle_export`  | GET /v1/audit/export              | blocked | enabled     | enabled    |
-| `replay_history_days`  | GET /v1/audit/replay (retention)  | 7 days  | 90 days     | 90 days    |
-| `max_monthly_runs`     | POST /v1/action monthly cap       | 500     | 10,000      | 10,000     |
-| `max_monthly_exports`  | GET /v1/audit/export monthly cap  | 0       | 100         | 100        |
-| `spend_analytics`      | Informational                     | blocked | enabled     | enabled    |
-| `advanced_filters`     | Informational                     | blocked | enabled     | enabled    |
+| Feature code           | What it gates                     | evaluation | free    | dev_monthly | dev_annual |
+|------------------------|-----------------------------------|------------|---------|-------------|------------|
+| `debug_bundle_export`  | GET /v1/audit/export              | —          | blocked | enabled     | enabled    |
+| `replay_history_days`  | GET /v1/audit/replay (retention)  | 3 days     | 7 days  | 90 days     | 90 days    |
+| `max_monthly_runs`     | POST /v1/action monthly cap       | 25         | 500     | 10,000      | 10,000     |
+| `max_monthly_exports`  | GET /v1/audit/export monthly cap  | 0          | 0       | 100         | 100        |
+| `spend_analytics`      | Informational                     | blocked    | blocked | enabled     | enabled    |
+| `advanced_filters`     | Informational                     | blocked    | blocked | enabled     | enabled    |
 
 `replay_history_days` is age-enforced server-side. Attempts older than the configured window return HTTP 402. A `limit_value` of 0 blocks all replay (used when a license is expired or revoked).
 
-**Unmanaged mode** (no license registered): all features accessible, no limits enforced, no retention window.
+**Evaluation mode** (no license registered): 25 runs/month, 3-day replay retention, exports blocked. Activate any plan to raise limits.
 
 Example 402 response:
 ```json

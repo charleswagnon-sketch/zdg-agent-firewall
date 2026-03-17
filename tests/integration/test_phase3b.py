@@ -192,6 +192,13 @@ def test_lifecycle_block_precedes_idempotent_replay(make_client, admin_headers):
 
 def test_portable_audit_export_verify_and_diff(make_client, admin_headers):
     with make_client() as client:
+        # Export requires debug_bundle_export entitlement; activate dev_monthly to enable it.
+        client.post(
+            "/v1/license/activate",
+            json={"email": "test@example.com", "plan_code": "dev_monthly"},
+            headers=admin_headers,
+        )
+
         created = client.post(
             "/v1/sessions",
             headers=admin_headers,

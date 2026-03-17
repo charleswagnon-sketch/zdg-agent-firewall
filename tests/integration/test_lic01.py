@@ -2,12 +2,12 @@
 ZDG-FR-LIC-01 — Lightweight licensing and entitlements suite.
 
 Tests the full licensing enforcement model:
-  No license registered (unmanaged mode) → all features accessible.
+  No license registered (evaluation mode) → UNMANAGED_LIMITS apply.
   Active license → entitlements determine feature access.
   Expired/revoked license → gated features blocked (402).
 
 Test coverage:
-  LIC-001  Unmanaged mode — no license registered, all gate points accessible
+  LIC-001  Evaluation mode — no license registered, core runs/replay accessible; export blocked
   LIC-002  License status endpoint — reflects current license state
   LIC-003  Active license, features not gated → all accessible
   LIC-004  Active license, debug_bundle_export=False → 402 on audit/export
@@ -23,6 +23,7 @@ Test coverage:
   LIC-014  Access control — license routes require admin token
   LIC-015  Active license, replay_history_days=7, recent run → 200 (within window)
   LIC-016  Active license, replay_history_days=7, old run → 402 (outside window)
+  LIC-017  Evaluation mode — status shows evaluation limits in usage_summary and entitlements
 """
 from __future__ import annotations
 
@@ -62,37 +63,38 @@ def _submit_action(client, *, agent_id="agent-lic-test", command="echo ok"):
     return r.json()["attempt_id"]
 
 
-# ── LIC-001: Unmanaged mode ───────────────────────────────────────────────────
+# ── LIC-001: Evaluation mode ──────────────────────────────────────────────────
 
-def test_unmanaged_mode_all_gate_points_accessible(make_client):
-    """No license registered → unmanaged mode — all existing gate points pass.
+def test_evaluation_mode_gate_points(make_client):
+    """No license registered → evaluation mode — UNMANAGED_LIMITS apply.
 
-    The audit/export, audit/replay, and audit/runs endpoints must all return
-    200 (or expected non-402 codes) when no license record exists.
+    Core flows (runs, replay) are accessible within evaluation limits.
+    Export is blocked (max_monthly_exports=0 in evaluation mode).
     """
     with make_client() as client:
-        # Confirm unmanaged mode
+        # Confirm evaluation / unmanaged mode
         status_r = client.get("/v1/license", headers=ADMIN)
         assert status_r.status_code == 200
         assert status_r.json()["unmanaged_mode"] is True
 
         attempt_id = _submit_action(client)
 
-        # Replay accessible
+        # Replay accessible (within 3-day evaluation window)
         snap_r = client.get(
             f"/v1/audit/replay?attempt_id={attempt_id}",
             headers=ADMIN,
         )
         assert snap_r.status_code == 200
 
-        # Export accessible
+        # Export blocked in evaluation mode (max_monthly_exports=0)
         export_r = client.get(
             "/v1/audit/export?chain_id=zdg-local-chain-01",
             headers=ADMIN,
         )
-        assert export_r.status_code == 200
+        assert export_r.status_code == 402
+        assert "max_monthly_exports" in export_r.json()["detail"]["feature"]
 
-        # Runs index accessible
+        # Runs index accessible (no license gate on runs index)
         runs_r = client.get("/v1/audit/runs", headers=ADMIN)
         assert runs_r.status_code == 200
 
@@ -100,15 +102,21 @@ def test_unmanaged_mode_all_gate_points_accessible(make_client):
 # ── LIC-002: License status endpoint ─────────────────────────────────────────
 
 def test_license_status_no_license(make_client):
-    """GET /v1/license returns unmanaged_mode=True with null license when no license registered."""
+    """GET /v1/license returns unmanaged_mode=True with evaluation entitlements when no license."""
     with make_client() as client:
         r = client.get("/v1/license", headers=ADMIN)
         assert r.status_code == 200
         data = r.json()
         assert data["unmanaged_mode"] is True
         assert data["license"] is None
-        assert data["entitlements"] == []
         assert data["installations"] == []
+        # Evaluation mode surfaces UNMANAGED_LIMITS as entitlements
+        ents = {e["feature_code"]: e for e in data["entitlements"]}
+        assert ents["max_monthly_runs"]["limit_value"] == 25
+        assert ents["replay_history_days"]["limit_value"] == 3
+        assert ents["max_monthly_exports"]["limit_value"] == 0
+        assert ents["advanced_filters"]["enabled"] is False
+        assert ents["spend_analytics"]["enabled"] is False
 
 
 def test_license_status_with_active_license(make_client):
@@ -618,3 +626,48 @@ def test_replay_age_window_old_run_blocked(make_client):
         detail = r_after.json()["detail"]
         assert detail["feature"] == "replay_history_days"
         assert "7-day" in detail["reason"]
+
+
+# ── LIC-017: Evaluation mode status shape ────────────────────────────────────
+
+def test_evaluation_mode_status_shape(make_client):
+    """Evaluation mode status exposes UNMANAGED_LIMITS in usage_summary and entitlements.
+
+    GET /v1/license with no license registered must:
+    - set unmanaged_mode=True
+    - return evaluation limits (not None) in usage_summary
+    - populate entitlements with the five evaluation limit rows
+    - return a status_message that references evaluation / limited access
+    """
+    with make_client() as client:
+        r = client.get("/v1/license", headers=ADMIN)
+        assert r.status_code == 200
+        data = r.json()
+
+        assert data["unmanaged_mode"] is True
+
+        # Status message must reflect evaluation mode (not "all features accessible")
+        msg = data["status_message"].lower()
+        assert "evaluation" in msg or "limited" in msg
+
+        # usage_summary must show finite limits, not None
+        usage = data["usage_summary"]
+        assert usage["max_monthly_runs"]["limit"] == 25
+        assert usage["max_monthly_exports"]["limit"] == 0
+
+        # Free plan is strictly more capable than evaluation mode
+        from core.licensing import PLAN_CATALOG
+        free_runs = next(
+            e["limit_value"] for e in PLAN_CATALOG["free"]["entitlements"]
+            if e["feature_code"] == "max_monthly_runs"
+        )
+        free_replay = next(
+            e["limit_value"] for e in PLAN_CATALOG["free"]["entitlements"]
+            if e["feature_code"] == "replay_history_days"
+        )
+        assert usage["max_monthly_runs"]["limit"] < free_runs, (
+            "Evaluation mode run cap must be stricter than Free plan"
+        )
+        assert 3 < free_replay, (
+            "Evaluation mode replay retention must be stricter than Free plan"
+        )
