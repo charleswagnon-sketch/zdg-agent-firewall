@@ -233,7 +233,7 @@ curl -s "http://127.0.0.1:8000/v1/audit/export?chain_id=zdg-local-chain-01&forma
   -H "X-ZDG-Admin-Token: your-secret-admin-token"
 ```
 
-> **Note:** Export requires `debug_bundle_export` entitlement. On `free` plan this feature is disabled. On `dev_monthly`/`dev_annual` or unmanaged mode it is accessible.
+> **Note:** Export requires `debug_bundle_export` entitlement. On `free` plan and evaluation mode this feature is disabled. On `dev_monthly`/`dev_annual` it is accessible.
 
 ---
 
