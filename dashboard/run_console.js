@@ -119,7 +119,7 @@ async function loadRuns() {
     }
     const data = await res.json();
     state.runsRows = data.runs ?? [];
-    renderRunsList();
+    renderRunsList(/* fromLoad */ true);
   } catch (e) {
     list.innerHTML = `<div style="padding:1rem;color:var(--danger);font-size:0.82rem;">${esc(e.message)}</div>`;
   }
@@ -132,12 +132,21 @@ function filterRuns(rows) {
   return rows;
 }
 
-function renderRunsList() {
+function renderRunsList(fromLoad = false) {
   const list = document.getElementById("rc-runs-list");
   if (!list) return;
   const rows = filterRuns(state.runsRows);
   if (!rows.length) {
-    list.innerHTML = `<div style="padding:1rem;color:var(--muted);font-size:0.82rem;">No runs match the current filter.</div>`;
+    if (fromLoad && state.runsRows.length === 0) {
+      // Genuinely empty — no runs exist yet
+      list.innerHTML = `<div class="rc-zero-sidebar">
+        <div class="rc-zero-sidebar-step"><strong>No runs yet.</strong></div>
+        <div class="rc-zero-sidebar-step">Use the form below to submit your first governed action. Try <code style="font-size:0.72rem;color:var(--accent)">shell / execute</code> with <code style="font-size:0.72rem;color:var(--accent)">{"command":"echo hello"}</code>.</div>
+        <div class="rc-zero-sidebar-step">Runs appear here once submitted.</div>
+      </div>`;
+    } else {
+      list.innerHTML = `<div style="padding:1rem;color:var(--muted);font-size:0.82rem;">No runs match the current filter.</div>`;
+    }
     return;
   }
   list.innerHTML = rows.map(row => {
@@ -577,7 +586,7 @@ function setupFilterChips() {
       state.activeFilter = chip.dataset.filter;
       document.querySelectorAll(".chip[data-filter]").forEach(c => c.classList.remove("active"));
       chip.classList.add("active");
-      renderRunsList();
+      renderRunsList(false);
     });
   });
 }
