@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run Console — ZDG-FR Developer Edition</title>
+  <link rel="stylesheet" href="/dashboard-assets/console.css">
+  <style>
+    /* ── Run Console layout overrides ───────────────────────────────────────── */
+    .rc-shell {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr) 320px;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+    }
+
+    .rc-topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.8rem 1.2rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(8, 17, 24, 0.96);
+      backdrop-filter: blur(14px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .rc-topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .rc-topbar-brand img {
+      height: 28px;
+      width: auto;
+      filter: invert(1);
+      mix-blend-mode: screen;
+      opacity: 0.88;
+    }
+
+    .rc-topbar-title {
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-left: 0.5rem;
+      padding-left: 0.8rem;
+      border-left: 1px solid var(--line-strong);
+    }
+
+    .rc-topbar-spacer { flex: 1; }
+
+    .rc-topbar-token {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.82rem;
+    }
+
+    .rc-topbar-token input {
+      width: 220px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.82rem;
+      border-radius: 10px;
+    }
+
+    .rc-sidebar {
+      border-right: 1px solid var(--line);
+      background: rgba(8, 15, 21, 0.96);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .rc-sidebar-head {
+      padding: 1rem 1rem 0.6rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .rc-sidebar-head h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.9rem;
+    }
+
+    .rc-filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chip {
+      padding: 0.3rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid var(--line-strong);
+      color: var(--muted);
+      background: transparent;
+      box-shadow: none;
+      transition: color 100ms, border-color 100ms, background 100ms;
+    }
+
+    .chip.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(67, 215, 178, 0.07);
+    }
+
+    .chip.chip-error.active {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(255, 110, 103, 0.08);
+    }
+
+    .chip.chip-block.active {
+      border-color: var(--warn);
+      color: var(--warn);
+      background: rgba(255, 180, 84, 0.08);
+    }
+
+    .rc-runs-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem 0;
+    }
+
+    .rc-run-item {
+      padding: 0.7rem 1rem;
+      border-bottom: 1px solid rgba(121, 186, 206, 0.07);
+      cursor: pointer;
+      transition: background 100ms;
+    }
+
+    .rc-run-item:hover {
+      background: rgba(67, 215, 178, 0.04);
+    }
+
+    .rc-run-item.active {
+      background: rgba(67, 215, 178, 0.09);
+      border-left: 2px solid var(--accent);
+    }
+
+    .rc-run-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.25rem;
+    }
+
+    .rc-run-item-id {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 160px;
+    }
+
+    .rc-run-item-meta {
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .rc-run-item-tool {
+      font-size: 0.75rem;
+      color: var(--soft);
+      font-weight: 600;
+    }
+
+    .rc-run-item-time {
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .rc-main {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid var(--line);
+    }
+
+    .rc-main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.2rem 1.4rem;
+    }
+
+    .rc-submit-area {
+      border-top: 1px solid var(--line);
+      padding: 1rem 1.4rem;
+      background: rgba(8, 15, 21, 0.9);
+    }
+
+    .rc-submit-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 0.65rem;
+      margin-bottom: 0.65rem;
+      align-items: end;
+    }
+
+    .rc-submit-row label span,
+    .rc-submit-args-row label span {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+
+    .rc-submit-row input,
+    .rc-submit-args-row textarea {
+      padding: 0.6rem 0.8rem;
+      font-size: 0.88rem;
+      border-radius: 12px;
+    }
+
+    .rc-submit-args-row {
+      margin-bottom: 0.65rem;
+    }
+
+    .rc-submit-args-row textarea {
+      min-height: 64px;
+      resize: vertical;
+    }
+
+    .rc-submit-bottom {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .rc-submit-bottom .rc-session-input {
+      flex: 1;
+    }
+
+    .rc-submit-bottom .rc-session-input input {
+      padding: 0.55rem 0.75rem;
+      font-size: 0.82rem;
+      border-radius: 10px;
+    }
+
+    #rc-submit-btn {
+      padding: 0.62rem 1.4rem;
+      font-size: 0.92rem;
+      white-space: nowrap;
+    }
+
+    /* Status bar */
+    .rc-status-bar {
+      padding: 0.4rem 1.4rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      background: rgba(7, 13, 19, 0.7);
+      min-height: 32px;
+    }
+
+    .rc-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .rc-status-dot.idle    { background: var(--muted); }
+    .rc-status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    .rc-status-dot.done    { background: var(--accent); }
+    .rc-status-dot.blocked { background: var(--warn); }
+    .rc-status-dot.failed  { background: var(--danger); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* Output area */
+    .rc-output-area {
+      min-height: 120px;
+    }
+
+    .rc-output-empty {
+      color: var(--muted);
+      font-size: 0.88rem;
+      padding: 1.5rem 0;
+    }
+
+    /* Decision hero strip */
+    .rc-decision-hero {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.9rem 1.1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, rgba(13, 28, 37, 0.98), rgba(9, 20, 27, 0.93));
+    }
+
+    .rc-decision-hero.allow { border-color: rgba(67, 215, 178, 0.35); background: linear-gradient(135deg, rgba(67, 215, 178, 0.06), rgba(9, 20, 27, 0.93)); }
+    .rc-decision-hero.block { border-color: rgba(255, 180, 84, 0.35);  background: linear-gradient(135deg, rgba(255, 180, 84, 0.06),  rgba(9, 20, 27, 0.93)); }
+    .rc-decision-hero.approval { border-color: rgba(103, 183, 255, 0.35); background: linear-gradient(135deg, rgba(103, 183, 255, 0.06), rgba(9, 20, 27, 0.93)); }
+    .rc-decision-hero.failed { border-color: rgba(255, 110, 103, 0.35); background: linear-gradient(135deg, rgba(255, 110, 103, 0.06), rgba(9, 20, 27, 0.93)); }
+
+    .rc-decision-badge {
+      font-size: 1.1rem;
+      font-weight: 900;
+      font-family: var(--font-display);
+      letter-spacing: 0.03em;
+    }
+
+    .rc-decision-badge.allow    { color: var(--accent); }
+    .rc-decision-badge.block    { color: var(--warn); }
+    .rc-decision-badge.approval { color: var(--info); }
+    .rc-decision-badge.failed   { color: var(--danger); }
+
+    .rc-decision-meta {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.5rem 1.2rem;
+    }
+
+    .rc-decision-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+
+    .rc-decision-field .label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .rc-decision-field .value {
+      font-size: 0.88rem;
+      color: var(--text);
+      font-family: var(--font-mono);
+    }
+
+    /* Failure card */
+    .rc-failure-card {
+      border: 1px solid rgba(255, 110, 103, 0.3);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 110, 103, 0.05);
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+
+    .rc-failure-card .rc-failure-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--danger);
+      font-weight: 700;
+      font-size: 0.88rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .rc-failure-card pre {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--soft);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* [1] Not-executed block card */
+    .rc-not-executed-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      border: 1px solid rgba(255, 180, 84, 0.28);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 180, 84, 0.04);
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .rc-not-executed-icon {
+      font-size: 1rem;
+      color: var(--warn);
+      font-weight: 900;
+      line-height: 1.4;
+      flex-shrink: 0;
+    }
+
+    .rc-not-executed-head {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--warn);
+      margin-bottom: 0.2rem;
+    }
+
+    .rc-not-executed-reason {
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .rc-not-executed-code {
+      font-family: var(--font-mono);
+      color: var(--soft);
+    }
+
+    /* [1] Execution output — mock variant gets accent border */
+    .rc-exec-output {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: rgba(7, 13, 19, 0.8);
+      padding: 0.8rem 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .rc-exec-output .rc-exec-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .rc-exec-output pre {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--soft);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* [1] Mock output gets a subtle accent tint to distinguish from real execution */
+    .rc-exec-output-mock {
+      border-color: rgba(67, 215, 178, 0.2);
+      background: rgba(67, 215, 178, 0.03);
+    }
+
+    .rc-exec-output-mock .rc-exec-label {
+      color: #7acfc0;
+    }
+
+    /* Tool call inline card */
+    .rc-tool-event {
+      border: 1px solid rgba(103, 183, 255, 0.18);
+      border-radius: var(--radius-sm);
+      background: rgba(103, 183, 255, 0.04);
+      padding: 0.7rem 0.9rem;
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+    }
+
+    .rc-tool-event-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      background: rgba(103, 183, 255, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--info);
+      flex-shrink: 0;
+      margin-top: 0.1rem;
+    }
+
+    .rc-tool-event-body { flex: 1; min-width: 0; }
+
+    .rc-tool-event-type {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--info);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 0.2rem;
+    }
+
+    .rc-tool-event-label {
+      font-size: 0.88rem;
+      color: var(--text);
+      margin-bottom: 0.2rem;
+    }
+
+    .rc-tool-event-meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-family: var(--font-mono);
+    }
+
+    /* ── Right panel — timeline ─────────────────────────────────────────────── */
+    .rc-timeline-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .rc-timeline-head {
+      padding: 1rem 1rem 0.6rem;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .rc-timeline-head h3 { margin: 0; font-size: 0.9rem; }
+
+    .rc-timeline-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem 0;
+    }
+
+    .rc-tl-item {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid rgba(121, 186, 206, 0.06);
+      cursor: pointer;
+      transition: background 100ms;
+      display: flex;
+      gap: 0.6rem;
+      align-items: flex-start;
+    }
+
+    .rc-tl-item:hover { background: rgba(67, 215, 178, 0.04); }
+    .rc-tl-item.active { background: rgba(67, 215, 178, 0.08); }
+
+    .rc-tl-seq {
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      min-width: 22px;
+      text-align: right;
+      padding-top: 0.1rem;
+      flex-shrink: 0;
+    }
+
+    .rc-tl-body { flex: 1; min-width: 0; }
+
+    .rc-tl-type {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+    }
+
+    .rc-tl-type.action   { color: var(--info); }
+    .rc-tl-type.allow    { color: var(--accent); }
+    .rc-tl-type.block    { color: var(--warn); }
+    .rc-tl-type.exec     { color: var(--soft); }
+    .rc-tl-type.failed   { color: var(--danger); }
+    .rc-tl-type.approval { color: var(--info); }
+
+    .rc-tl-label {
+      font-size: 0.82rem;
+      color: var(--text);
+      margin-bottom: 0.15rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .rc-tl-time {
+      font-size: 0.68rem;
+      color: var(--muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Inspector */
+    .rc-inspector {
+      border-top: 1px solid var(--line);
+      background: rgba(7, 13, 19, 0.9);
+      max-height: 360px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .rc-inspector.visible { display: block; }
+
+    .rc-inspector-head {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .rc-inspector-head h4 {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--soft);
+    }
+
+    .rc-inspector-metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .rc-inspector-metric {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .rc-inspector-metric .label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .rc-inspector-metric .value {
+      font-size: 0.85rem;
+      color: var(--text);
+      font-family: var(--font-mono);
+    }
+
+    .rc-inspector-payload {
+      padding: 0.5rem 1rem 0.8rem;
+    }
+
+    .rc-inspector-payload pre {
+      margin: 0;
+      font-size: 0.75rem;
+      color: var(--soft);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    /* Export strip */
+    .rc-export-strip {
+      padding: 0.5rem 1rem;
+      border-top: 1px solid var(--line);
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      background: rgba(7, 13, 19, 0.8);
+    }
+
+    /* Pills */
+    .pill.allow    { background: rgba(67, 215, 178, 0.12); color: #43d7b2; border-color: rgba(67, 215, 178, 0.25); }
+    .pill.block    { background: rgba(255, 180, 84, 0.12);  color: #ffb454; border-color: rgba(255, 180, 84, 0.25); }
+    .pill.failed   { background: rgba(255, 110, 103, 0.12); color: #ff6e67; border-color: rgba(255, 110, 103, 0.25); }
+    .pill.approval { background: rgba(103, 183, 255, 0.12); color: #67b7ff; border-color: rgba(103, 183, 255, 0.25); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<div class="rc-shell">
+
+  <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+  <header class="rc-topbar">
+    <a href="/dashboard" class="rc-topbar-brand">
+      <img src="/dashboard-assets/logo.jpg" alt="ZDG">
+      ZDG-FR
+    </a>
+    <span class="rc-topbar-title">Run Console</span>
+    <div class="rc-topbar-spacer"></div>
+    <div class="rc-topbar-token">
+      <span style="font-size:0.78rem;color:var(--muted);font-weight:700;letter-spacing:0.05em;">ADMIN TOKEN</span>
+      <input id="rc-token-input" type="password" placeholder="X-ZDG-Admin-Token" autocomplete="off">
+      <button type="button" class="small ghost" id="rc-token-save">Save</button>
+    </div>
+    <a href="/dashboard" class="ghost" style="text-decoration:none;padding:0.45rem 0.9rem;border:1px solid rgba(103,183,255,0.18);border-radius:999px;font-size:0.82rem;color:var(--text);">← Console</a>
+  </header>
+
+  <!-- ── Left sidebar — recent runs ────────────────────────────────────── -->
+  <aside class="rc-sidebar">
+    <div class="rc-sidebar-head">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <h3>Recent Runs</h3>
+        <button type="button" class="small ghost" id="rc-refresh-runs" style="padding:0.3rem 0.7rem;font-size:0.75rem;">Refresh</button>
+      </div>
+    </div>
+
+    <div class="rc-filter-chips">
+      <button class="chip active" data-filter="all">All</button>
+      <button class="chip chip-block" data-filter="block">Blocked</button>
+      <button class="chip chip-error" data-filter="error">Errors</button>
+    </div>
+
+    <div class="rc-runs-list" id="rc-runs-list">
+      <div style="padding:1rem;color:var(--muted);font-size:0.82rem;">Save token and refresh to load runs.</div>
+    </div>
+  </aside>
+
+  <!-- ── Center — action submit + output ──────────────────────────────── -->
+  <main class="rc-main">
+    <div class="rc-status-bar">
+      <div class="rc-status-dot idle" id="rc-status-dot"></div>
+      <span id="rc-status-text">Idle — submit an action to start a governed run</span>
+    </div>
+
+    <div class="rc-main-content">
+      <div class="rc-output-area" id="rc-output-area">
+        <p class="rc-output-empty">Submit an action below to run it through the governance pipeline. The decision, execution result, and event trace will appear here.</p>
+      </div>
+    </div>
+
+    <div class="rc-submit-area">
+      <form id="rc-submit-form" autocomplete="off">
+        <div class="rc-submit-row">
+          <label>
+            <span>Agent ID</span>
+            <input id="rc-agent-id" type="text" value="agent-console-01" placeholder="agent-id">
+          </label>
+          <label>
+            <span>Tool / Action</span>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+              <input id="rc-tool-family" type="text" value="shell" placeholder="shell">
+              <input id="rc-action" type="text" value="execute" placeholder="execute">
+            </div>
+          </label>
+          <button type="submit" id="rc-submit-btn">Run</button>
+        </div>
+        <div class="rc-submit-args-row">
+          <label>
+            <span>Args (JSON)</span>
+            <textarea id="rc-args" spellcheck="false">{"command": "echo hello"}</textarea>
+          </label>
+        </div>
+        <div class="rc-submit-bottom">
+          <div class="rc-session-input">
+            <input id="rc-session-id" type="text" placeholder="session_id (optional)">
+          </div>
+          <div style="font-size:0.75rem;color:var(--muted);">
+            <span id="rc-attempt-id-display" class="mono" style="font-size:0.72rem;"></span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- ── Right panel — timeline + inspector ────────────────────────────── -->
+  <div class="rc-timeline-panel">
+    <div class="rc-timeline-head">
+      <h3>Event Timeline</h3>
+      <span id="rc-tl-count" style="font-size:0.75rem;color:var(--muted);">—</span>
+    </div>
+
+    <div class="rc-timeline-list" id="rc-timeline-list">
+      <div style="padding:1rem;color:var(--muted);font-size:0.82rem;">Run an action to see the event timeline.</div>
+    </div>
+
+    <div class="rc-inspector" id="rc-inspector">
+      <div class="rc-inspector-head">
+        <h4 id="rc-inspector-title">Event detail</h4>
+        <button type="button" class="small ghost" id="rc-inspector-close" style="padding:0.2rem 0.55rem;font-size:0.72rem;">✕</button>
+      </div>
+      <div class="rc-inspector-metrics" id="rc-inspector-metrics"></div>
+      <div class="rc-inspector-payload">
+        <pre id="rc-inspector-payload">—</pre>
+      </div>
+    </div>
+
+    <div class="rc-export-strip" id="rc-export-strip" style="display:none;">
+      <button type="button" class="small ghost" id="rc-export-snapshot">Download snapshot</button>
+      <button type="button" class="small ghost" id="rc-export-raw">Download raw JSON</button>
+      <button type="button" class="small ghost" id="rc-copy-summary">Copy summary</button>
+    </div>
+  </div>
+
+</div>
+<script src="/dashboard-assets/run_console.js"></script>
+</body>
+</html>
