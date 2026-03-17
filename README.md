@@ -31,7 +31,7 @@ The developer console at `/dashboard` lets you browse runs, open replays, invest
 **Requirements:** Python 3.11+, Linux / macOS / WSL
 
 ```bash
-git clone https://github.com/zero-day-governance/zdg-agent-firewall
+git clone https://github.com/charleswagnon-sketch/zdg-agent-firewall
 cd zdg-agent-firewall
 
 python3 -m venv .venv

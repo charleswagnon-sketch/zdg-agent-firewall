@@ -1,6 +1,6 @@
-# ZDG Agent Firewall — Trial Operations Guide
+# ZDG-FR Developer Edition — Trial Operations Guide
 
-This guide covers provisioning, support, and lifecycle management for closed external developer trials of ZDG Agent Firewall (FR Developer Edition).
+This guide is for operators running closed external developer trials of ZDG-FR Developer Edition. It covers provisioning, support, triage, and license lifecycle management.
 
 ---
 
@@ -181,10 +181,10 @@ curl -s -X POST "$ZDG_URL/v1/license/activate" \
 | Single-instance only | SQLite backend; no HA or multi-node support |
 | Local storage | All data (feedback, audit events, license records) stored in the local SQLite DB |
 | No email delivery | Feedback stored locally only; no outbound notifications |
-| No self-service portal | All provisioning is done via API or script |
+| Trial provisioning is admin-led | Trial licenses are provisioned via API or script; subscription billing flows are separate |
 | Monthly windows are calendar-month | Cap counters reset at UTC midnight on the 1st of each month |
 | No license renewal UI | Use `POST /v1/license/activate` to reissue a fresh license |
-| Unmanaged mode is permissive | If no license is active, all features are accessible with no caps enforced |
+| Unmanaged mode is for local/self-hosted evaluation | If no license is active, developer-facing feature caps are not enforced |
 
 ---
 
@@ -196,6 +196,6 @@ curl -s -X POST "$ZDG_URL/v1/license/activate" \
 | Export blocked with HTTP 402 | `GET /v1/license` → check `usage_summary.max_monthly_exports` and license `status` |
 | Agent run returns decision `BLOCK` (HTTP 200) | `GET /v1/audit/runs` → locate attempt → `POST /v1/investigate` with the same payload to trace the block reason |
 | Admin endpoint returns HTTP 401 | Check that `X-ZDG-Admin-Token` header is present and correct; `POST /v1/action` does not require this header |
-| Policy decision unexpected | `GET /v1/audit/runs` → locate attempt → `GET /v1/audit/replay?attempt_id=...` to inspect the full decision timeline |
+| Unexpected decision | Open the attempt in `/v1/audit/runs`, then inspect `/v1/audit/replay?attempt_id=...` for the full timeline and reason chain |
 | Firewall won't start | Check `ZDG_ADMIN_TOKEN` and `ZDG_CHAIN_ID` are set; check `ZDG_POLICY_BUNDLE_PATH` exists |
 | Support triage | `GET /v1/support/bundle` → share bundle JSON (no secrets exposed) |
