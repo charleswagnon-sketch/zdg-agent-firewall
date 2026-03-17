@@ -589,7 +589,7 @@ def test_replay_age_window_old_run_blocked(make_client):
     event's actual creation time. Exercises the age-based enforcement path in
     GET /v1/audit/replay without requiring DB writes (audit_events is append-only).
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from unittest.mock import MagicMock, patch
 
     with make_client() as client:
@@ -613,9 +613,9 @@ def test_replay_age_window_old_run_blocked(make_client):
 
         # Advance the route's clock by 8 days so the event falls outside the 7-day window.
         # audit_events is append-only so we move "now" forward instead of backdating events.
-        future_now = datetime.utcnow() + timedelta(days=8)
+        future_now = datetime.now(timezone.utc) + timedelta(days=8)
         mock_dt = MagicMock(wraps=datetime)
-        mock_dt.utcnow.return_value = future_now
+        mock_dt.now.return_value = future_now
         with patch("api.routes.audit.datetime", mock_dt):
             r_after = client.get(
                 f"/v1/audit/replay?attempt_id={attempt_id}",

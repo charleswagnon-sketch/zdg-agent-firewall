@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -134,7 +134,7 @@ def get_attempt_replay(
         # Age-based window: find the earliest event for this attempt and compare
         # its creation time against the retention cutoff.
         # If no events exist yet, skip the check — the 404 path handles that below.
-        cutoff = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=retention_days)
         earliest = session.exec(
             select(AuditEvent)
             .where(AuditEvent.related_attempt_id == attempt_id)
