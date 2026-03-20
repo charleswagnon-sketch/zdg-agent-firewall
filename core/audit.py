@@ -16,6 +16,14 @@ from core.normalize import canonical_json
 
 GENESIS_HASH = "GENESIS"
 
+# ── High-Integrity Event Types (Mission 1) ───────────────────────────────────
+ACTION_ATTEMPTED = "ACTION_ATTEMPTED"
+ACTION_EXECUTED = "ACTION_EXECUTED"
+ACTION_BLOCKED = "ACTION_BLOCKED"
+CREDENTIAL_USED = "CREDENTIAL_USED"
+CONTRACT_BREACHED = "CONTRACT_BREACHED"
+DECISION_FINALIZED = "DECISION_FINALIZED"
+
 
 def utc_now() -> datetime:
     """Naive UTC datetime compatible with SQLite round-trip semantics."""

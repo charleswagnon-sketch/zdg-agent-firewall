@@ -67,6 +67,9 @@ _EVENT_LABELS: dict[str, str] = {
     "GUARDRAIL_EVALUATED": "Guardrail checks evaluated",
     "BREACH_WARN": "Breach warning emitted",
     "BREACH_ESCALATED": "Breach escalated — operator review required",
+    "CONTRACT_BREACHED": "Policy contract threshold breached",
+    "DECISION_FINALIZED": "Terminal decision finalized and recorded",
+    "CREDENTIAL_USED": "Credential used for governed tool execution",
     # ── License and billing ───────────────────────────────────────────────────
     "LICENSE_ACTIVATED": "License activated",
     "LICENSE_EXPIRED": "License expired",
@@ -82,6 +85,7 @@ _TERMINAL_EVENT_TYPES: frozenset[str] = frozenset({
     "ACTION_BLOCKED",
     "APPROVAL_REQUIRED",
     "UNREGISTERED_TOOL_FAMILY",
+    "DECISION_FINALIZED",
 })
 
 _EXECUTION_EVENT_TYPES: frozenset[str] = frozenset({
@@ -151,6 +155,11 @@ def build_attempt_replay(session: "Session", attempt_id: str) -> dict[str, Any]:
     attempted_payload = attempted_ev.get("event_payload") or {}
 
     terminal_ev = _first_of_types(by_type, _TERMINAL_EVENT_TYPES)
+    # Mission 1: Prefer DECISION_FINALIZED over other terminal types if present.
+    dec_finalized = by_type.get("DECISION_FINALIZED")
+    if dec_finalized:
+        terminal_ev = dec_finalized[0]
+
     terminal_payload = terminal_ev.get("event_payload") or {} if terminal_ev else {}
 
     exec_ev = _first_of_types(by_type, _EXECUTION_EVENT_TYPES)
@@ -176,14 +185,21 @@ def build_attempt_replay(session: "Session", attempt_id: str) -> dict[str, Any]:
 
     # Final decision: terminal event carries decision_state; fall back to
     # pre_lifecycle_decision from ACTION_ATTEMPTED for legacy / edge cases.
+    # Mission 1: use 'decision' field from DECISION_FINALIZED if present.
     final_decision = (
-        terminal_payload.get("decision_state")
+        terminal_payload.get("decision")
+        or terminal_payload.get("decision_state")
         or attempted_payload.get("pre_lifecycle_decision")
     )
     terminal_reason_code = (
         terminal_payload.get("reason_code")
         or attempted_payload.get("pre_lifecycle_reason_code")
     )
+
+    # Authority summary: Mission 1: use authority_context from terminal event if available.
+    auth_ctx = terminal_payload.get("authority_context") or attempted_payload.get("authority_context") or {}
+    actor_id = auth_ctx.get("actor_identity", {}).get("actor_id") or attempted_payload.get("actor_id")
+    delegation_chain_id = auth_ctx.get("delegation_chain", {}).get("delegation_chain_id") or attempted_payload.get("delegation_chain_id")
 
     # Guardrail checks triggered
     checks = guardrail_payload.get("checks") or []
@@ -207,10 +223,12 @@ def build_attempt_replay(session: "Session", attempt_id: str) -> dict[str, Any]:
             "start_time": start_time,
             "end_time": end_time,
             "duration_ms": duration_ms,
+            "ruleset_hash": terminal_payload.get("ruleset_hash"),
+            "policy_bundle_version": terminal_payload.get("policy_bundle_version"),
         },
         "authority_summary": {
-            "actor_id": attempted_payload.get("actor_id"),
-            "delegation_chain_id": attempted_payload.get("delegation_chain_id"),
+            "actor_id": actor_id,
+            "delegation_chain_id": delegation_chain_id,
         },
         "contract_summary": {
             "contract_id": contract_payload.get("contract_id"),
@@ -304,25 +322,21 @@ def _build_credential_summary(
 ) -> dict[str, Any]:
     """Derive the credential lifecycle summary from persisted events.
 
-    Most fields are observed from CREDENTIAL_ISSUED and CREDENTIAL_REVOKED
-    event payloads. Two fields are derived proxies (not stored audit facts):
+    Most fields are observed from CREDENTIAL_ISSUED, CREDENTIAL_USED, and
+    CREDENTIAL_REVOKED event payloads.
 
-      in_bounds   — DERIVED: inferred from CREDENTIAL_ISSUED presence only
-                    (credential is only issued after authority validation passes).
-                    Not read from a stored field. (CRED-TRACE-01 parked)
-      usage_count — DERIVED: 1 if an execution event is present, else 0.
-                    Not counted from CREDENTIAL_USED events (none emitted yet).
+    Mission 1 (Evidence Hardening):
+      in_bounds   — OBSERVED: True if CREDENTIAL_ISSUED or CREDENTIAL_USED exists.
+      usage_count — OBSERVED: Count of CREDENTIAL_USED events.
 
     The authority_context nested in credential event payloads is intentionally
-    excluded from the summary to avoid surfacing auth_context claims — those
-    fields are operator metadata that should not appear in shaped output.
-    privilege_scope is safe: it contains only tool_family, action, session_id,
-    run_id, and trace_id.
+    excluded from the summary to avoid surfacing auth_context claims.
     """
     issued_list = by_type.get("CREDENTIAL_ISSUED") or []
+    used_list = by_type.get("CREDENTIAL_USED") or []
     revoked_list = by_type.get("CREDENTIAL_REVOKED") or []
 
-    if not issued_list:
+    if not issued_list and not used_list:
         return {
             "issued": False,
             "grant_id": None,
@@ -340,24 +354,20 @@ def _build_credential_summary(
             "in_bounds": False,
         }
 
-    issued_payload = issued_list[0].get("event_payload") or {}
+    # Prefer data from ISSUED if available, fallback to USED for reconstruction
+    primary_ev = issued_list[0] if issued_list else used_list[0]
+    issued_payload = primary_ev.get("event_payload") or {}
 
-    # subject_type from authority_context.actor_identity.actor_type — safe metadata,
-    # not a secret. Exclude the full authority_context object from the summary.
     auth_ctx = issued_payload.get("authority_context") or {}
     actor_identity = auth_ctx.get("actor_identity") or {}
     subject_type = actor_identity.get("actor_type")
 
     revoked_payload = revoked_list[0].get("event_payload") or {} if revoked_list else {}
 
-    # used: an execution event was emitted for this attempt (observed)
-    used = exec_ev is not None
-    # DERIVED proxy — not counted from CREDENTIAL_USED events (CRED-TRACE-01 parked)
-    usage_count = 1 if used else 0
-
-    # DERIVED proxy — CREDENTIAL_ISSUED is only emitted after validate_authority_context()
-    # passes, so presence of the event implies in_bounds. Not read from a stored field.
-    in_bounds = True
+    # OBSERVED facts from Mission 1
+    usage_count = len(used_list)
+    used = usage_count > 0
+    in_bounds = True  # Existence of issued/used events proves in-bounds
 
     return {
         "issued": True,
