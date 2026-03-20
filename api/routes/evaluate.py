@@ -25,8 +25,14 @@ from core import credentialing
 from core import decision as decision_engine
 from core import handoffs
 from core import killswitch as ks_manager
+from core import normalize as normalizer
 from core import sessions as session_manager
-from core.audit import append_audit_event_with_session_chain
+from core.audit import (
+    CONTRACT_BREACHED,
+    CREDENTIAL_USED,
+    DECISION_FINALIZED,
+    append_audit_event_with_session_chain,
+)
 from core.evaluation import evaluate_request, utc_now
 from core.logging import log_decision, log_execution
 from core.modes import Decision, NormalizationStatus, ReasonCode
@@ -84,6 +90,61 @@ def evaluate_action(
             detail={"reason": str(exc), "feature": exc.feature_code},
         ) from exc
 
+    # ── Tier 1: Lifecycle Block Check (Fast-Fail) ─────────────────────────────
+    # Check session/agent state before any heavy evaluation work.
+    lifecycle_block = _check_lifecycle_block(session=session, body=body)
+
+    # We still need basic normalization for the audit trail even if we block.
+    # This is lightweight (regex/string parsing).
+    normalization = normalizer.normalize_with_trace(
+        tool_family=body.tool_family,
+        action=body.action,
+        args=body.args,
+    )
+
+    if lifecycle_block is not None:
+        reason_code, reason = lifecycle_block
+        
+        # Resolve a minimal authority context for the lifecycle block audit.
+        _authority_ctx = _build_authority_context(
+            settings=settings,
+            bundle=bundle,
+            body=body,
+            payload_hash=normalization.payload_hash,
+            evaluation_time=timestamp,
+            run_id=attempt_id,
+            trace_id=trace_id,
+        )
+
+        _persist_attempt(
+            session=session,
+            attempt_id=attempt_id,
+            body=body,
+            normalized_payload=normalization.normalized_payload,
+            payload_hash=normalization.payload_hash,
+            normalization_status=normalization.status,
+            authority_context=_authority_ctx,
+        )
+        session.flush()
+
+        return _build_lifecycle_block_response(
+            session=session,
+            state=state,
+            bundle=bundle,
+            body=body,
+            authority_context=_authority_ctx,
+            attempt_id=attempt_id,
+            decision_id=decision_id,
+            trace_id=trace_id,
+            timestamp=timestamp,
+            request_id=request_id,
+            started_at=started_at,
+            reason_code=reason_code,
+            reason=reason,
+        )
+
+    # ── Tier 2: Full Evaluation ───────────────────────────────────────────────
+
     artifacts = evaluate_request(
         session=session,
         bundle=bundle,
@@ -103,106 +164,6 @@ def evaluate_action(
         streaming_release_hold_chars=settings.zdg_streaming_release_hold_chars,
     )
     trace = artifacts.trace
-
-    if trace.idempotency.payload_mismatch:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason_code": ReasonCode.IDEMPOTENCY_KEY_PAYLOAD_MISMATCH,
-                "reason": "This idempotency key was previously used with a different payload.",
-                "idempotency_key": body.idempotency_key,
-            },
-        )
-
-    # Anchor every non-replay governed run with intake + evaluation state.
-    # Emitted after evaluate_request() so normalization, risk, guardrail, and
-    # authority context are available. Skipped for idempotency replay hits — the
-    # original ACTION_ATTEMPTED already anchors those runs.
-    if not trace.idempotency.replay_hit:
-        _authority_ctx = trace.authority_context
-        append_audit_event_with_session_chain(
-            session=session,
-            global_chain_id=settings.zdg_chain_id,
-            session_id=body.session_id,
-            event_type="ACTION_ATTEMPTED",
-            event_payload={
-                "trace_id": trace_id,
-                "attempt_id": attempt_id,
-                "agent_id": body.agent_id,
-                "tool_family": body.tool_family,
-                "action": body.action,
-                "session_id": body.session_id,
-                "normalization_status": trace.normalization_status.value,
-                "payload_hash": trace.payload_hash,
-                "total_risk_score": trace.total_risk_score,
-                "matched_policy_rule": trace.matched_policy_rule,
-                "pre_lifecycle_decision": trace.final_decision.decision.value,
-                "pre_lifecycle_reason_code": trace.final_decision.reason_code.value,
-                "guardrail_blocked": trace.guardrails.blocked,
-                "killswitch_active": trace.killswitch.active,
-                "actor_id": (
-                    _authority_ctx.actor_identity.actor_id
-                    if _authority_ctx is not None
-                    else None
-                ),
-                "delegation_chain_id": (
-                    _authority_ctx.delegation_chain.delegation_chain_id
-                    if _authority_ctx is not None and _authority_ctx.delegation_chain is not None
-                    else None
-                ),
-            },
-            related_attempt_id=attempt_id,
-        )
-
-    # Eagerly expire ACTIVE contracts past their TTL before the lifecycle gate.
-    if body.session_id:
-        expired_contracts = contracts_manager.expire_active_contracts(
-            session=session,
-            reference_time=timestamp,
-            session_id=body.session_id,
-        )
-        for expired_contract in expired_contracts:
-            append_audit_event_with_session_chain(
-                session=session,
-                global_chain_id=settings.zdg_chain_id,
-                session_id=expired_contract.session_id,
-                event_type="CONTRACT_EXPIRED",
-                event_payload={
-                    "contract_id": expired_contract.contract_id,
-                    "run_id": expired_contract.run_id,
-                    "session_id": expired_contract.session_id,
-                    "agent_id": expired_contract.agent_id,
-                    "actor_id": expired_contract.actor_id,
-                    "delegation_chain_id": expired_contract.delegation_chain_id,
-                    "expires_at": (
-                        expired_contract.expires_at.isoformat()
-                        if expired_contract.expires_at is not None
-                        else None
-                    ),
-                    "reference_time": timestamp.isoformat(),
-                },
-            )
-        if expired_contracts:
-            session.flush()
-
-    lifecycle_block = _check_lifecycle_block(session=session, body=body)
-    if lifecycle_block is not None:
-        reason_code, reason = lifecycle_block
-        return _build_lifecycle_block_response(
-            session=session,
-            state=state,
-            bundle=bundle,
-            body=body,
-            trace=trace,
-            attempt_id=attempt_id,
-            decision_id=decision_id,
-            trace_id=trace_id,
-            timestamp=timestamp,
-            request_id=request_id,
-            started_at=started_at,
-            reason_code=reason_code,
-            reason=reason,
-        )
 
     if trace.idempotency.replay_hit and artifacts.cached_response_json:
         cached_response = json.loads(artifacts.cached_response_json)
@@ -369,6 +330,23 @@ def evaluate_action(
                     event_type="CREDENTIAL_ACTIVATED",
                     grant=credential_grant,
                     authority_context=trace.authority_context,
+                    related_attempt_id=attempt_id,
+                )
+                # ── High-Integrity Credential Usage (Mission 1) ──────────────
+                append_audit_event_with_session_chain(
+                    session=session,
+                    global_chain_id=settings.zdg_chain_id,
+                    session_id=body.session_id,
+                    event_type=CREDENTIAL_USED,
+                    event_payload={
+                        "timestamp": timestamp.isoformat(),
+                        "attempt_id": attempt_id,
+                        "grant_id": credential_grant.grant_id,
+                        "lease_state": credential_grant.lease_state.value,
+                        "agent_id": body.agent_id,
+                        "tool_family": body.tool_family,
+                        "action": body.action,
+                    },
                     related_attempt_id=attempt_id,
                 )
                 execution_context = _build_execution_context(
@@ -586,6 +564,22 @@ def evaluate_action(
                             },
                             related_attempt_id=attempt_id,
                         )
+                        # ── High-Integrity Contract Breach (Mission 1) ──────────────
+                        append_audit_event_with_session_chain(
+                            session=session,
+                            global_chain_id=settings.zdg_chain_id,
+                            session_id=body.session_id,
+                            event_type=CONTRACT_BREACHED,
+                            event_payload={
+                                "timestamp": timestamp.isoformat(),
+                                "attempt_id": attempt_id,
+                                "contract_id": bound_contract.contract_id,
+                                "breach_type": "soft_warn",
+                                "breached_fields": _breach_fields,
+                                "disposition": "warn",
+                            },
+                            related_attempt_id=attempt_id,
+                        )
 
                 # Escalation check: emit BREACH_ESCALATED once when accumulated
                 # BREACH_WARN count reaches the configured threshold.
@@ -623,6 +617,23 @@ def evaluate_action(
                             },
                             related_attempt_id=attempt_id,
                         )
+                        # ── High-Integrity Contract Breach (Mission 1) ──────────────
+                        append_audit_event_with_session_chain(
+                            session=session,
+                            global_chain_id=settings.zdg_chain_id,
+                            session_id=body.session_id,
+                            event_type=CONTRACT_BREACHED,
+                            event_payload={
+                                "timestamp": timestamp.isoformat(),
+                                "attempt_id": attempt_id,
+                                "contract_id": bound_contract.contract_id,
+                                "breach_type": "escalation",
+                                "breach_warn_count": _breach_warn_count,
+                                "disposition": "block",
+                            },
+                            related_attempt_id=attempt_id,
+                        )
+
 
                 wrapper.context = execution_context
                 revoke_reason = "execution_completed"
@@ -744,6 +755,19 @@ def evaluate_action(
         decision=decision_envelope,
     )
     session.flush()
+
+    # ── High-Integrity Terminal Event (Mission 1) ────────────────────────────
+    # Immutable fact recording the final decision and its context.
+    _append_decision_finalized_event(
+        session=session,
+        state=state,
+        body=body,
+        trace=trace,
+        decision=decision_envelope,
+        attempt_id=attempt_id,
+        decision_id=decision_id,
+        timestamp=timestamp,
+    )
 
     if trace.guardrails.checks:
         append_audit_event_with_session_chain(
@@ -1090,7 +1114,7 @@ def _build_lifecycle_block_response(
     state: AppState,
     bundle: PolicyBundle,
     body: ActionRequest,
-    trace,
+    authority_context,
     attempt_id: str,
     decision_id: str,
     trace_id: str,
@@ -1100,27 +1124,17 @@ def _build_lifecycle_block_response(
     reason_code: ReasonCode,
     reason: str,
 ) -> ActionResponse:
-    _persist_attempt(
-        session=session,
-        attempt_id=attempt_id,
-        body=body,
-        normalized_payload=trace.normalized_payload,
-        payload_hash=trace.payload_hash,
-        normalization_status=trace.normalization_status,
-        authority_context=trace.authority_context,
-    )
-    session.flush()
     decision_envelope = decision_engine.build_enforcement_decision(
         decision=Decision.BLOCK,
         reason_code=reason_code,
         reason=reason,
         risk_score=0,
         triggered_rules=[],
-        payload_hash=trace.payload_hash,
+        payload_hash="lifecycle:blocked",
         policy_bundle_id=bundle.bundle_id,
         policy_bundle_version=bundle.version,
         ruleset_hash=bundle.ruleset_hash,
-        authority_context=trace.authority_context,
+        authority_context=authority_context,
         effective_at=timestamp,
     )
 
@@ -1137,17 +1151,15 @@ def _build_lifecycle_block_response(
         global_chain_id=state.settings.zdg_chain_id,
         session_id=body.session_id,
         event_type="ACTION_BLOCKED",
-        event_payload=_build_runtime_event_payload(
-            timestamp=timestamp,
-            source_component=decision_engine.source_component_for_decision(decision_envelope),
-            body=body,
-            authority_context=trace.authority_context,
-            decision=decision_envelope,
-            extra={
+        event_payload={
+            "timestamp": timestamp.isoformat(),
+            "source_component": decision_engine.source_component_for_decision(decision_envelope),
             "attempt_id": attempt_id,
             "decision_id": decision_id,
+            "agent_id": body.agent_id,
             "tool_family": body.tool_family,
             "action": body.action,
+            "session_id": body.session_id,
             "reason_code": reason_code.value,
             "risk_score": 0,
             "policy_bundle_version": bundle.version,
@@ -1155,12 +1167,11 @@ def _build_lifecycle_block_response(
             "module_origin": decision_envelope.module_origin.value,
             "gal_stage": decision_envelope.gal_stage.value,
             "authority_context": (
-                trace.authority_context.model_dump(mode="json")
-                if trace.authority_context is not None
+                authority_context.model_dump(mode="json")
+                if authority_context is not None
                 else None
             ),
-            },
-        ),
+        },
         related_attempt_id=attempt_id,
     )
     session.commit()
@@ -1178,7 +1189,7 @@ def _build_lifecycle_block_response(
         reason=reason,
         risk_score=0,
         triggered_rules=[],
-        payload_hash=trace.payload_hash,
+        payload_hash="lifecycle:blocked",
         policy_bundle_id=bundle.bundle_id,
         policy_bundle_version=bundle.version,
         ruleset_hash=bundle.ruleset_hash,
@@ -1186,7 +1197,7 @@ def _build_lifecycle_block_response(
         approval_expires_at=None,
         approval_consumed=False,
         killswitch_scope=None,
-        authority_context=trace.authority_context,
+        authority_context=authority_context,
         enforcement_decision=decision_envelope,
         execution=None,
         timestamp=timestamp,
@@ -1208,6 +1219,44 @@ def _build_lifecycle_block_response(
         idempotent_replay=False,
     )
     return response
+
+
+def _build_authority_context(
+    settings: Settings,
+    bundle: PolicyBundle,
+    body: ActionRequest,
+    payload_hash: str,
+    evaluation_time: datetime,
+    run_id: str,
+    trace_id: str,
+) -> RunAuthorityContext:
+    # Minimal resolution for lifecycle blocks
+    from core.evaluation import _resolve_actor_identity, _resolve_delegation_chain
+    actor_identity = _resolve_actor_identity(body)
+    # Note: agent identity resolution is skipped here as we already have agent_id
+    # and we want to keep lifecycle blocks as fast as possible.
+    return RunAuthorityContext(
+        run_id=run_id,
+        session_id=body.session_id,
+        trace_id=trace_id,
+        actor_identity=actor_identity,
+        agent_identity=AgentIdentity(
+            agent_id=body.agent_id,
+            allowed_tool_families=[body.tool_family],
+            lifecycle_state="active",
+        ),
+        delegation_chain=_resolve_delegation_chain(
+            body=body,
+            actor_identity=actor_identity,
+            agent_identity=AgentIdentity(agent_id=body.agent_id, allowed_tool_families=[body.tool_family], lifecycle_state="active"),
+            evaluation_time=evaluation_time,
+            payload_hash=payload_hash,
+        ),
+        requested_tool_family=body.tool_family,
+        requested_operation=body.action,
+        policy_bundle_id=bundle.bundle_id,
+        policy_bundle_version=bundle.version,
+    )
 
 
 
@@ -1540,5 +1589,46 @@ def _persist_handoff(
     attempt.handoff_schema_version = handoff_result.schema_version
     attempt.handoff_validation_state = handoff_result.validation_state.value
     attempt.handoff_disposition = handoff_result.disposition.value
+
+
+def _append_decision_finalized_event(
+    *,
+    session: Session,
+    state: AppState,
+    body: ActionRequest,
+    trace,
+    decision: EnforcementDecision,
+    attempt_id: str,
+    decision_id: str,
+    timestamp: datetime,
+) -> None:
+    """Emit the terminal immutable fact for this evaluation."""
+    append_audit_event_with_session_chain(
+        session=session,
+        global_chain_id=state.settings.zdg_chain_id,
+        session_id=body.session_id,
+        event_type=DECISION_FINALIZED,
+        event_payload={
+            "timestamp": timestamp.isoformat(),
+            "attempt_id": attempt_id,
+            "decision_id": decision_id,
+            "agent_id": body.agent_id,
+            "tool_family": body.tool_family,
+            "action": body.action,
+            "decision": decision.decision.value,
+            "reason_code": decision.reason_code.value,
+            "reason": decision.reason,
+            "risk_score": decision.risk_score,
+            "policy_bundle_version": decision.policy_bundle_version,
+            "ruleset_hash": decision.ruleset_hash,
+            "triggered_rules": decision.triggered_rules,
+            "authority_context": (
+                trace.authority_context.model_dump(mode="json")
+                if trace.authority_context is not None
+                else None
+            ),
+        },
+        related_attempt_id=attempt_id,
+    )
 
 

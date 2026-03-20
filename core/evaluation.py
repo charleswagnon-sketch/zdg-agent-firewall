@@ -90,17 +90,6 @@ def evaluate_request(
         run_id=run_id,
         trace_id=trace_id,
     )
-    guardrails = guardrail_engine.evaluate_guardrails(
-        args=normalized_args,
-        metadata=body.metadata,
-        parallel_enabled=guardrail_parallel_enabled,
-        max_workers=guardrail_parallel_workers,
-        pii_enabled=guardrail_pii_enabled,
-        toxicity_enabled=guardrail_toxicity_enabled,
-        jailbreak_enabled=guardrail_jailbreak_enabled,
-        streaming_enabled=streaming_guardrails_enabled,
-        streaming_release_hold_chars=streaming_release_hold_chars,
-    )
 
     idempotency = IdempotencyTrace(checked=bool(body.idempotency_key), key=body.idempotency_key)
     cached_response_json: str | None = None
@@ -128,6 +117,9 @@ def evaluate_request(
                     idempotency.replay_hit = True
                     cached_response_json = scoped_entry.response_json
 
+    # ── Fast-fail: Kill Switch check ──────────────────────────────────────────
+    # Check this early to avoid expensive risk/policy/guardrail calls when a
+    # block is already destined by a kill switch.
     ks_active, ks_scope, ks_scope_value, ks_reason = ks_manager.check_killswitch(
         session=session,
         agent_id=body.agent_id,
@@ -139,6 +131,67 @@ def evaluate_request(
         scope=ks_scope,
         scope_value=ks_scope_value,
         reason=ks_reason,
+    )
+
+    if ks_active:
+        scope_label = ks_scope.value if ks_scope else "global"
+        final_decision = decision_engine.build_enforcement_decision(
+            decision=Decision.BLOCK,
+            reason_code=ReasonCode.KILLSWITCH_ACTIVE,
+            reason=f"Kill switch active ({scope_label}): {ks_reason}",
+            risk_score=0,
+            triggered_rules=[],
+            payload_hash=normalization.payload_hash,
+            policy_bundle_id=bundle.bundle_id,
+            policy_bundle_version=bundle.version,
+            ruleset_hash=bundle.ruleset_hash,
+            killswitch_scope=ks_scope,
+            authority_context=authority_context,
+            effective_at=evaluation_time,
+        )
+        return EvaluationArtifacts(
+            trace=EvaluationTrace(
+                normalized_payload=normalization.normalized_payload,
+                normalization_status=normalization.status,
+                normalization_failure_reason=normalization.failure_reason,
+                normalization_steps=normalization.steps,
+                canonical_json=normalization.canonical_json,
+                payload_hash=normalization.payload_hash,
+                idempotency=idempotency,
+                killswitch=killswitch,
+                risk_breakdown=None,
+                total_risk_score=0,
+                policy_rules_evaluated=[],
+                matched_policy_rule=None,
+                authority_context=authority_context,
+                final_decision=final_decision,
+                approval=ApprovalUsageTrace(
+                    provided=body.approval_id is not None,
+                    checked=False,
+                    approval_id=body.approval_id,
+                    matched=False,
+                    consumable=False,
+                    reason_code=ReasonCode.KILLSWITCH_ACTIVE,
+                    reason="Evaluation skipped: active kill switch.",
+                ),
+                guardrails=None,
+            ),
+            cached_response_json=None,
+        )
+
+    # ── Contextual Evaluation (Risk, Policy, Guardrails) ──────────────────────
+    # Only executed if no kill switch is active.
+
+    guardrails = guardrail_engine.evaluate_guardrails(
+        args=normalized_args,
+        metadata=body.metadata,
+        parallel_enabled=guardrail_parallel_enabled,
+        max_workers=guardrail_parallel_workers,
+        pii_enabled=guardrail_pii_enabled,
+        toxicity_enabled=guardrail_toxicity_enabled,
+        jailbreak_enabled=guardrail_jailbreak_enabled,
+        streaming_enabled=streaming_guardrails_enabled,
+        streaming_release_hold_chars=streaming_release_hold_chars,
     )
 
     recent_block_count = _recent_block_count(
