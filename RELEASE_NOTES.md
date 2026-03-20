@@ -1,5 +1,16 @@
 # Release Notes
 
+## [Unreleased] — 2026-03-19
+### Performance & Integrity Patch (Tiered Evaluation)
+- **Architectural Shift:** Implemented a three-tier "Fast-Fail" evaluation pipeline to reduce latency and compute waste.
+  - **Tier 0 (Licensing):** Monthly run/export caps checked before any request processing.
+  - **Tier 1 (Lifecycle):** Session/Agent state (Closed, Suspended, Expired) checked at the route layer before normalization.
+  - **Tier 1.5 (Early Persistence):** `ToolAttempt` and minimal `RunAuthorityContext` are now persisted even for lifecycle-blocked requests to ensure Black Box audit integrity.
+  - **Tier 2 (Kill Switch):** Global/Agent/Session kill switches checked early in `core/evaluation.py`, skipping Risk/Policy/Guardrail engines.
+- **Licensing Gate Hardening (Tier 0):** Closed permissive bypass for expired/revoked licenses. Established a unified "Strict State Gating" model across all entitlement checks.
+- **Refactoring:** Moved `evaluate_request` to a pure, conditional-execution model. Added `_build_authority_context` to the route layer for lifecycle blocks.
+- **Author:** Gemini CLI (Technical Architect / Sr. Developer)
+
 ## v0.1.0-rc3 — 2026-03-16
 
 Third public release candidate of **ZDG-FR Developer Edition**.

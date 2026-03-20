@@ -186,99 +186,108 @@ def get_entitlements(session: "Session", license_id: str) -> dict[str, Entitleme
 def check_feature(session: "Session", feature_code: str) -> bool:
     """Return True if the feature is accessible, False if blocked.
 
-    No license registered (evaluation mode) → check UNMANAGED_LIMITS.
-    License active/trialing + no entitlement row → True (opt-in gating).
-    License active/trialing + entitlement.enabled = False → False.
-    License expired/revoked → False for any query (all gated features blocked).
+    Strict enforcement logic:
+      1. No license ever registered → check UNMANAGED_LIMITS.
+      2. Active/Trialing license   → check entitlements (opt-in gating).
+      3. Expired/Revoked license  → False (fully blocked).
     """
     from sqlmodel import select
 
-    license = get_active_license(session)
-    if license is None:
-        any_license = session.exec(
-            select(License).order_by(License.issued_at.desc()).limit(1)
-        ).first()
-        if any_license is None:
-            # Truly unmanaged evaluation mode — apply evaluation limits.
-            ent = UNMANAGED_LIMITS.get(feature_code)
-            if ent is not None:
-                return ent["enabled"]
-            return True  # feature not in evaluation limits → accessible
-        # An inactive license exists (expired/revoked) — retain existing behavior.
-        return True
-    if license.status not in ("active", "trialing"):
-        return False
-    entitlements = get_entitlements(session, license.license_id)
-    ent = entitlements.get(feature_code)
-    if ent is None:
-        return True  # no explicit gate → accessible
-    return ent.enabled
+    active_license = get_active_license(session)
+    if active_license:
+        entitlements = get_entitlements(session, active_license.license_id)
+        ent = entitlements.get(feature_code)
+        if ent is None:
+            return True  # no explicit gate → accessible for active plans
+        return ent.enabled
+
+    # No active license — check if an inactive one exists
+    any_license = session.exec(
+        select(License).order_by(License.issued_at.desc()).limit(1)
+    ).first()
+
+    if any_license is None:
+        # Truly unmanaged evaluation mode — apply evaluation limits.
+        ent = UNMANAGED_LIMITS.get(feature_code)
+        if ent is not None:
+            return ent["enabled"]
+        return True  # feature not in evaluation limits → accessible
+
+    # A license exists but is not active (expired/revoked) — terminal block.
+    return False
 
 
 def require_feature(session: "Session", feature_code: str) -> None:
     """Enforce feature access. Raises LicenseError if blocked.
 
-    Call this at LIC-01 gate points. Route handlers convert LicenseError to
-    HTTP 402 with a detail block describing the feature and reason.
-
-    No license registered (evaluation mode) → check UNMANAGED_LIMITS; raise if disabled.
-    Expired/revoked license → raises LicenseError even though get_active_license returns None.
+    Strict enforcement logic:
+      1. No license ever registered → check UNMANAGED_LIMITS; raise if disabled.
+      2. Active/Trialing license   → check entitlements; raise if disabled.
+      3. Expired/Revoked license  → raise license_expired/license_revoked.
     """
     from sqlmodel import select
 
-    license = get_active_license(session)
-    if license is None:
-        # No active/trialing license — check if one exists at all
-        any_license = session.exec(
-            select(License).order_by(License.issued_at.desc()).limit(1)
-        ).first()
-        if any_license is None:
-            # Truly unmanaged evaluation mode — apply evaluation limits.
-            ent = UNMANAGED_LIMITS.get(feature_code)
-            if ent is not None and not ent["enabled"]:
-                raise LicenseError(feature_code, "feature_disabled")
-            return  # not restricted in evaluation mode
-        # A license exists but is not active/trialing → enforce block
-        if any_license.status == "expired":
-            raise LicenseError(feature_code, "license_expired")
-        if any_license.status == "revoked":
-            raise LicenseError(feature_code, "license_revoked")
-        raise LicenseError(feature_code, f"license_status:{any_license.status}")
-    # Active/trialing: enforce per-feature entitlements
-    entitlements = get_entitlements(session, license.license_id)
-    ent = entitlements.get(feature_code)
-    if ent is not None and not ent.enabled:
-        raise LicenseError(feature_code, "feature_disabled")
+    active_license = get_active_license(session)
+    if active_license:
+        # Active/trialing: enforce per-feature entitlements
+        entitlements = get_entitlements(session, active_license.license_id)
+        ent = entitlements.get(feature_code)
+        if ent is not None and not ent.enabled:
+            raise LicenseError(feature_code, "feature_disabled")
+        return
+
+    # No active license — check if an inactive one exists
+    any_license = session.exec(
+        select(License).order_by(License.issued_at.desc()).limit(1)
+    ).first()
+
+    if any_license is None:
+        # Truly unmanaged evaluation mode — apply evaluation limits.
+        ent = UNMANAGED_LIMITS.get(feature_code)
+        if ent is not None and not ent["enabled"]:
+            raise LicenseError(feature_code, "feature_disabled")
+        return
+
+    # A license exists but is not active — terminal block with specific reason.
+    if any_license.status == "expired":
+        raise LicenseError(feature_code, "license_expired")
+    if any_license.status == "revoked":
+        raise LicenseError(feature_code, "license_revoked")
+    raise LicenseError(feature_code, f"license_status:{any_license.status}")
 
 
 def get_feature_limit(session: "Session", feature_code: str) -> int | None:
     """Return the numeric limit for a feature, or None (unlimited).
 
-    No license (evaluation mode) → return UNMANAGED_LIMITS value, or None if not listed.
-    Active license + no entitlement → None (unlimited).
-    Active license + entitlement.limit_value set → return limit_value.
-    Expired/revoked license → 0 (fully restricted).
+    Strict enforcement logic:
+      1. No license ever registered → check UNMANAGED_LIMITS.
+      2. Active/Trialing license   → check entitlements (None if no row).
+      3. Expired/Revoked license  → 0 (fully restricted).
     """
     from sqlmodel import select
 
-    license = get_active_license(session)
-    if license is None:
-        # No active/trialing license — check if one exists at all
-        any_license = session.exec(
-            select(License).order_by(License.issued_at.desc()).limit(1)
-        ).first()
-        if any_license is None:
-            # Truly unmanaged evaluation mode — return evaluation limit.
-            ent = UNMANAGED_LIMITS.get(feature_code)
-            if ent is not None:
-                return ent["limit_value"]
-            return None  # feature not in evaluation limits → unlimited
-        return 0  # expired/revoked — fully restricted
-    entitlements = get_entitlements(session, license.license_id)
-    ent = entitlements.get(feature_code)
-    if ent is None:
-        return None  # no explicit limit → unlimited
-    return ent.limit_value
+    active_license = get_active_license(session)
+    if active_license:
+        entitlements = get_entitlements(session, active_license.license_id)
+        ent = entitlements.get(feature_code)
+        if ent is None:
+            return None  # no explicit limit → unlimited for active plans
+        return ent.limit_value
+
+    # No active license — check if an inactive one exists
+    any_license = session.exec(
+        select(License).order_by(License.issued_at.desc()).limit(1)
+    ).first()
+
+    if any_license is None:
+        # Truly unmanaged evaluation mode — apply evaluation limits.
+        ent = UNMANAGED_LIMITS.get(feature_code)
+        if ent is not None:
+            return ent["limit_value"]
+        return None  # feature not in evaluation limits → unlimited
+
+    # A license exists but is not active (expired/revoked) — fully restricted.
+    return 0
 
 
 # ── Monthly cap enforcement ───────────────────────────────────────────────────
